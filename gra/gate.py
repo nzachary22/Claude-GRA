@@ -73,7 +73,7 @@ class QueryResult:
     purpose: str
     columns: list[str]
     rows: list[list]
-    elapsed_ms: int
+    elapsed_ms: int = 0
 
 
 @dataclass
