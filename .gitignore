@@ -1,0 +1,45 @@
+# --- Client data, uploads, databases and exports: never commit ---
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+uploads/
+exports/
+appdata/
+*.docx
+*.xlsx
+*.xls
+*.csv
+*.pdf
+
+# Synthetic test packages (kept local only)
+juniper-ridge-legal-aid-society/
+test-data/
+
+# --- Secrets ---
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
