@@ -18,8 +18,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]
 
+[project.scripts]
+grant-reporting-assistant = "gra.server:main"
+
 [tool.setuptools.packages.find]
 include = ["gra*"]
+
+[tool.setuptools.package-data]
+gra = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
