@@ -51,15 +51,19 @@ button, .button { font: inherit; border-radius: 7px; padding: 8px 16px; cursor: 
 @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
 .now { font-weight: 600; margin: 0 0 8px; }
 .events { margin: 0; padding-left: 20px; color: var(--muted); font-size: 14px; max-height: 320px; overflow: auto; }
-.events li.refused { color: var(--muted); font-style: italic; }
-.events li.error { color: var(--bad); }
+.events li.ev-refused { color: var(--muted); font-style: italic; }
+.events li.ev-error { color: var(--bad); }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .toolbar h2 { margin: 0; }
 .toolbar p { margin: 2px 0 0; }
 .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .table-block { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 18px; align-items: start; }
 @media (max-width: 960px) { .table-block { grid-template-columns: 1fr; } }
+.table-block.wide { grid-template-columns: 1fr; }
+.table-block.wide .notes { flex-direction: row; flex-wrap: wrap; }
+.table-block.wide .note { flex: 1 1 280px; }
 .table-wrap { overflow-x: auto; }
+table.report tbody td:first-child { min-width: 230px; }
 table.report { border-collapse: collapse; width: 100%; font-size: 14px; }
 table.report th, table.report td { border: 1px solid var(--line); padding: 5px 9px; }
 table.report thead th { background: var(--head); font-weight: 600; text-align: center; vertical-align: bottom; }

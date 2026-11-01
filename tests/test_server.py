@@ -81,3 +81,20 @@ def test_rejects_bad_input(client, tiny_files, tmp_path):
 def test_index_served(client):
     res = client.get("/")
     assert res.status_code == 200 and "Grant Reporting Assistant" in res.text
+
+
+def test_cancel_mid_run(tmp_path, monkeypatch, tiny_files):
+    monkeypatch.setenv("GRA_DATA_DIR", str(tmp_path / "appdata"))
+
+    class Slow(ScriptedModel):
+        def respond(self, *a, **k):
+            time.sleep(0.3)
+            return super().respond(*a, **k)
+
+    c = TestClient(create_app(lambda: Slow([[("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})]] * 20)))
+    run_id = start(c, tiny_files, tmp_path)
+    time.sleep(0.5)
+    assert c.post(f"/api/runs/{run_id}/cancel").status_code == 200
+    r = wait(c, run_id)
+    assert r["status"] == "cancelled"
+    assert any(e["kind"] == "cancelled" for e in r["events"])

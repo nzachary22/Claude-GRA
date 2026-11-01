@@ -86,6 +86,7 @@
   // ------------------------------------------------------------ prepare
   function startPolling(id) {
     state.runId = id; state.seen = 0;
+    history.replaceState(null, "", `#run=${id}`);
     $("events").innerHTML = ""; $("now").textContent = "Starting…";
     $("bar").style.display = "";
     show("prepare");
@@ -99,7 +100,7 @@
     state.seen = r.event_count;
     for (const e of r.events) {
       const li = document.createElement("li");
-      li.className = e.kind;
+      li.className = `ev-${e.kind}`;
       li.textContent = e.message;
       $("events").appendChild(li);
       if (e.kind !== "refused") $("now").textContent = e.message;
@@ -135,7 +136,7 @@
     $("general-notes").innerHTML = general.length ? `<div class="card"><h3>Assumptions and notes for all tables</h3><div class="notes">${general.map(noteHtml).join("")}</div></div>` : "";
     $("tables").innerHTML = r.tables.map((t) => {
       const notes = r.notes.filter((n) => n.tables.includes(t.id));
-      return `<div class="card table-block"><div><h3>${esc(t.title)}</h3><div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
+      return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3><div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
         <aside class="notes">${notes.length ? notes.map(noteHtml).join("") : '<p class="muted">No assumptions recorded for this table.</p>'}</aside></div>`;
     }).join("");
     document.querySelectorAll("[data-change]").forEach((b) => (b.onclick = () => openChange(b)));
@@ -183,7 +184,7 @@
     state.timer = setInterval(poll, 1000);
   }
   $("correct-form").onsubmit = (e) => { e.preventDefault(); submitCorrection($("correct-text").value); };
-  $("new-report").onclick = () => { show("upload"); $("start").disabled = !(state.reportFiles.length && state.dataFiles.length); };
+  $("new-report").onclick = () => { history.replaceState(null, "", location.pathname); show("upload"); $("start").disabled = !(state.reportFiles.length && state.dataFiles.length); };
 
   $("copy").onclick = async () => {
     const r = state.last; if (!r) return;
@@ -209,4 +210,7 @@
   };
 
   checkStatus().catch(() => {});
+  // Reopening or refreshing the page returns to the same report run.
+  const m = location.hash.match(/run=([a-f0-9]+)/);
+  if (m) startPolling(m[1]);
 })();
