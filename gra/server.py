@@ -6,6 +6,7 @@ app-data folder, never in the repository.
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import threading
@@ -28,6 +29,7 @@ from .importer import READERS, import_files
 from .paths import app_data_dir
 from .schema import describe
 
+log = logging.getLogger("gra")
 STATIC = Path(__file__).parent / "static"
 DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
@@ -246,6 +248,7 @@ def _work(run: Run, factory):
         run.session.run()
         run.status = run.session.status
     except Exception as e:
+        log.exception("Report run %s failed", run.id)
         run.status = "failed"
         run.error = str(e) if isinstance(e, (RuntimeError, ValueError)) else f"Could not prepare the report ({type(e).__name__})."
         _event(run, "error", run.error)
@@ -256,6 +259,7 @@ def _correct(run: Run, text: str):
         run.session.correct(text)
         run.status = run.session.status
     except Exception as e:
+        log.exception("Correction for run %s failed", run.id)
         run.status = "failed"
         run.error = f"Could not apply the correction ({type(e).__name__})."
 

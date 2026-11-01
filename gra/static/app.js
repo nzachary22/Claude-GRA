@@ -95,8 +95,10 @@
     poll();
   }
   async function poll() {
+    if (state.polling) return;  // never overlap requests, or events would repeat
+    state.polling = true;
     let r;
-    try { r = await api(`/api/runs/${state.runId}?since=${state.seen}`); } catch { return; }
+    try { r = await api(`/api/runs/${state.runId}?since=${state.seen}`); } catch { return; } finally { state.polling = false; }
     state.seen = r.event_count;
     for (const e of r.events) {
       const li = document.createElement("li");
