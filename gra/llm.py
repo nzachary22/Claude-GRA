@@ -19,7 +19,7 @@ _KEYRING_USER = "anthropic_api_key"
 
 
 def get_api_key() -> str | None:
-    env = os.environ.get("ANTHROPIC_API_KEY")
+    env = os.environ.get("ANTHROPIC_API_KEY") or _windows_user_env("ANTHROPIC_API_KEY")
     if env:
         return env
     try:
@@ -27,6 +27,19 @@ def get_api_key() -> str | None:
 
         return keyring.get_password(_KEYRING_SERVICE, _KEYRING_USER)
     except Exception:
+        return None
+
+
+def _windows_user_env(name: str) -> str | None:
+    """A user-level variable set after this process started (Windows only)."""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+            return winreg.QueryValueEx(k, name)[0] or None
+    except OSError:
         return None
 
 
