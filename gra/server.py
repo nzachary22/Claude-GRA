@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,7 +24,7 @@ from pydantic import BaseModel
 from . import __version__
 from .activity import read_events, render_text, sent_text
 from .activity_report import to_report_docx
-from .documents import to_blocks
+from .documents import scan_text, to_blocks
 from .engine import ReportSession
 from .exports import to_docx, to_xlsx
 from .gate import QueryGate
@@ -65,6 +66,8 @@ class Run:
 def create_app(model_factory=None) -> FastAPI:
     """model_factory() returns a model client; tests pass a scripted one."""
     app = FastAPI(title="Grant Reporting Assistant", version=__version__)
+    # Only this computer's own address: stops other web pages reaching the app by DNS tricks.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
     runs: dict[str, Run] = {}
 
     @app.middleware("http")
@@ -180,11 +183,69 @@ def create_app(model_factory=None) -> FastAPI:
         text = body.text.strip()
         if not text:
             raise HTTPException(400, "Describe the correction.")
+        if run.session.gate.contains_protected(text):
+            raise HTTPException(400, "The correction mentions a name, ID or note from your client data, which would be "
+                                     "sent to the AI. Describe the change without it.")
         run.cancel_requested = False
         run.status = "running"
         run.session.status = "running"
         threading.Thread(target=_correct, args=(run, text[:4000]), daemon=True).start()
         return {"ok": True}
+
+    @app.delete("/api/runs/{run_id}")
+    def delete_run(run_id: str):
+        """Remove a run's uploads, database, activity record and exports from this computer."""
+        if not re.fullmatch(r"[a-f0-9]{12}", run_id):
+            raise HTTPException(404, "Unknown report run.")
+        run = runs.pop(run_id, None)
+        if run and run.session:
+            run.session.cancel()
+        _remove(app_data_dir() / "runs" / run_id)
+        return {"ok": True}
+
+    @app.delete("/api/runs")
+    def delete_all_runs():
+        for run in list(runs.values()):
+            if run.session:
+                run.session.cancel()
+        runs.clear()
+        root = app_data_dir() / "runs"
+        count = 0
+        if root.exists():
+            for folder in root.iterdir():
+                if folder.is_dir():
+                    _remove(folder)
+                    count += 1
+        return {"ok": True, "deleted": count}
+
+    @app.post("/api/preview")
+    async def preview(data_files: list[UploadFile] = File(...)):
+        """Import the exports and show exactly what the AI would be told about them. Nothing is sent."""
+        for f in data_files:
+            if Path(f.filename or "").suffix.lower() not in READERS:
+                raise HTTPException(400, f"{f.filename}: data files must be CSV, Excel or JSON.")
+        folder = app_data_dir() / "preview" / uuid.uuid4().hex[:12]
+        folder.mkdir(parents=True)
+        try:
+            names, total = [], 0
+            for f in data_files:
+                name = _safe_name(f.filename or "file", names)
+                content = await f.read()
+                total += len(content)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, "The uploaded files are too large.")
+                (folder / name).write_bytes(content)
+                names.append(name)
+            db = folder / "data.db"
+            catalog = import_files(db, [folder / n for n in names])
+            return {"schema": describe(db, catalog), "tables": [
+                {"table": t.name, "file": t.source_file, "rows": t.rows, "code_list": t.reference,
+                 "columns": [{"header": c.source_name, "role": c.role} for c in t.columns]}
+                for t in catalog.tables]}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        finally:
+            _remove(folder)
 
     @app.get("/api/runs/{run_id}/details")
     def details(run_id: str):
@@ -276,6 +337,7 @@ def _work(run: Run, factory):
             _event(run, "cancelled", "Stopped at your request")
             return
         gate = QueryGate(db, catalog)
+        _check_reports(run, gate)
         _event(run, "status", "Connecting to the AI service")
         model = factory()
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,
@@ -290,6 +352,37 @@ def _work(run: Run, factory):
         run.status = "failed"
         run.error = str(e) if isinstance(e, (RuntimeError, ValueError)) else f"Could not prepare the report ({type(e).__name__})."
         _event(run, "error", run.error)
+
+
+def _check_reports(run: Run, gate: QueryGate):
+    """Refuse to send a report or requirements file that contains a stored client name, ID or note."""
+    for n in run.report_names:
+        text = scan_text(run.folder / "report" / n)
+        if text is None:
+            _event(run, "status", f"{n} could not be checked for client details (image or unreadable file); "
+                                  "it is sent as is")
+            continue
+        found = gate.protected_matches(text, limit=50)
+        # Full names, IDs and emails stop the run; a lone word (a surname a staff member may share) is flagged.
+        strong = [v for v in found if re.search(r"[\d\s@]", v)]
+        if strong:
+            shown = ", ".join(f'"{v}"' for v in strong[:3])
+            raise ValueError(f"{n} contains client details that also appear in your data ({shown}). "
+                             "Nothing was sent to the AI. Remove them from the report, or upload only "
+                             "its tables or the grant requirements, and start again.")
+        if found:
+            _event(run, "warning", f"{n} contains words that also appear in protected client fields "
+                                   f"({', '.join(found[:5])}). Check that the report names no clients.")
+    if run.report_names:
+        _event(run, "status", "Checked the report for client names and IDs from your data; none found")
+
+
+def _remove(folder: Path):
+    """Delete a folder; a database file still held open is retried once."""
+    shutil.rmtree(folder, ignore_errors=True)
+    if folder.exists():
+        time.sleep(0.5)
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def _correct(run: Run, text: str):

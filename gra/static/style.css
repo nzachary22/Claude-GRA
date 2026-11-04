@@ -86,3 +86,11 @@ table.report td[title] { cursor: help; }
 .tech summary { cursor: pointer; font-weight: 600; }
 .tech table { font-size: 12px; border-collapse: collapse; margin: 6px 0 14px; }
 .tech td, .tech th { border: 1px solid var(--line); padding: 2px 6px; }
+
+.warn-line { color: var(--bad); }
+.events li.ev-warning { color: var(--bad); }
+.preview { margin-top: 14px; }
+.preview table { border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; }
+.preview th, .preview td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+.preview td.protected { font-weight: 600; }
+.preview pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 10px; border-radius: 6px; max-height: 420px; overflow: auto; }

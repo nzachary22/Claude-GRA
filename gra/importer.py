@@ -37,17 +37,30 @@ _INT_RE = re.compile(r"^-?(0|[1-9]\d*)$")
 _REAL_RE = re.compile(r"^-?(0|[1-9]\d*)\.\d+$")
 
 # Name patterns (matched against snake_case column names).
-_ID_NAME = re.compile(r"(^|_)(id|uuid|guid|key|number|no|num)$")
+_ID_NAME = re.compile(r"(^|_)(id|ids|uuid|guid|key|number|no|num|nbr)$|^(case|matter|file|record|docket|account|"
+                      r"case_file|intake|ticket|reference|ref)$")
 _PERSON_NAME = re.compile(
-    r"(^|_)(ssn|social_security|email|e_mail|phone|mobile|telephone|cell|fax|address|street|addr|"
-    r"zip4|license|passport|alien|a_number|medicaid|medicare|surname|first_name|last_name|"
-    r"middle_name|full_name|given_name|maiden_name)(_|$)"
+    r"(^|_)(ssn|ss_no|ss_num|social_security|tin|itin|ein|email|e_mail|phone|phones|mobile|telephone|tel|cell|fax|"
+    r"address|address1|address2|street|addr|apt|unit_no|zip4|zip_4|license|dl|passport|alien|a_number|uscis|"
+    r"medicaid|medicare|mrn|surname|first_name|last_name|middle_name|full_name|given_name|maiden_name|"
+    r"aka|alias|initials|latitude|longitude|lat|lng|lon|ip_address|signature)(_|$)"
 )
-# "name" columns are identifiers unless they behave like a short category list.
-_NAME_COL = re.compile(r"(^|_)name$")
+# Columns that name a person (a client, an opposing party, a family member) are
+# identifiers whatever their cardinality: one client with many cases repeats.
+_PERSON_REF = re.compile(
+    r"^(client|applicant|participant|person|individual|customer|patient|caller|beneficiary|"
+    r"spouse|guardian|household_member|contact|emergency_contact|"
+    r"tenant|landlord|employer|respondent|petitioner|defendant|plaintiff|victim|witness|abuser|"
+    r"party|adverse_party|opposing_party|opposing_counsel|adverse|opposing)(_(full_|first_|last_)?names?)?$"
+    r"|(^|_)(adverse|opposing)_(party|parties|counsel)(_|$)|(^|_)(client|applicant|spouse|child|tenant|"
+    r"landlord|party|contact|guardian|respondent|petitioner|defendant|plaintiff|victim)_(full_|first_|last_)?names?$"
+)
+# Other "name" columns are identifiers unless they behave like a short category list.
+_NAME_COL = re.compile(r"(^|_)names?$")
 _SENSITIVE_NAME = re.compile(r"(^|_)(dob|birth|birthdate|date_of_birth|born)(_|$)")
 _FREE_TEXT_NAME = re.compile(r"(^|_)(note|notes|narrative|comment|comments|description|memo|summary|details)(_|$)")
-_CODE_TABLE_HINT = re.compile(r"(^|_)(code|codes|reference|lookup|crosswalk|definitions?|dictionary)(_|$)")
+_CODE_TABLE_HINT = re.compile(r"(^|_)(code|codes|reference|lookup|lookups|crosswalk|definitions?|dictionary|"
+                              r"types|categories|labels|levels|map|mapping|codebook|legend)(_|$)")
 _PERSON_TABLE_HINT = re.compile(r"(client|person|people|individual|member|participant|applicant|customer|patient)")
 
 
@@ -95,7 +108,10 @@ class Catalog:
 
 
 def snake(name: str) -> str:
-    s = re.sub(r"[^0-9a-zA-Z]+", "_", str(name).strip()).strip("_").lower()
+    """Column and table names in snake_case; CamelCase headers (DateOfBirth) are split too."""
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(name).strip())
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", s)
+    s = re.sub(r"[^0-9a-zA-Z]+", "_", s).strip("_").lower()
     if not s:
         s = "col"
     if s[0].isdigit():
@@ -249,7 +265,7 @@ def _classify(col: str, table: str, sql_type: str, values: list, rows: int) -> s
         return "sensitive"
     if _FREE_TEXT_NAME.search(col):
         return "free_text"
-    if _PERSON_NAME.search(col):
+    if _PERSON_NAME.search(col) or _PERSON_REF.search(col):
         return "identifier"
     if _NAME_COL.search(col) and not looks_categorical:
         return "identifier"
@@ -261,8 +277,8 @@ def _classify(col: str, table: str, sql_type: str, values: list, rows: int) -> s
         avg_len = sum(len(str(v)) for v in present) / len(present)
         if avg_len >= FREE_TEXT_MIN_AVG_LEN and distinct > max(20, 0.5 * len(present)):
             return "free_text"
-        if distinct > CATEGORY_MAX_DISTINCT and distinct >= 0.9 * len(present):
-            return "identifier"  # near-unique codes behave like record keys
+        if distinct >= 0.9 * len(present) and (distinct > CATEGORY_MAX_DISTINCT or len(present) >= 20):
+            return "identifier"  # near-unique codes behave like record keys, even in a small export
         if distinct <= CATEGORY_MAX_DISTINCT:
             return "category"
         return "text"
@@ -272,15 +288,25 @@ def _classify(col: str, table: str, sql_type: str, values: list, rows: int) -> s
 
 
 def _is_reference(table: TableInfo) -> bool:
+    """Whether a table is a code list whose full contents may be shown to the AI.
+
+    A small export of cases or clients must never qualify, so a table without a
+    code-list name also needs no record keys, dates or personal values.
+    """
     if table.rows > REFERENCE_MAX_ROWS or _PERSON_TABLE_HINT.search(table.name):
         return False
     # A notes column in a table named as a code list explains the codes; elsewhere it stays withheld.
     code_list = bool(_CODE_TABLE_HINT.search(table.name))
-    return not any(
-        _PERSON_NAME.search(c.name) or _SENSITIVE_NAME.search(c.name)
+    if any(
+        _PERSON_NAME.search(c.name) or _SENSITIVE_NAME.search(c.name) or _PERSON_REF.search(c.name)
         or (c.role == "free_text" and not code_list) or _PERSON_TABLE_HINT.search(c.name)
+        or c.role == "sensitive"
         for c in table.columns
-    )
+    ):
+        return False
+    if code_list:
+        return True
+    return not any(c.role in ("identifier", "date", "free_text") for c in table.columns)
 
 
 # ---------------------------------------------------------------- import

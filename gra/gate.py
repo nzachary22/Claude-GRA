@@ -104,7 +104,13 @@ class QueryGate:
         }
         self._roles = {(t.name, c.name): c.role for t in catalog.tables for c in t.columns}
         self._hidden_columns = {(t, c) for (t, c), r in self._roles.items() if r == "free_text"}
-        self._protected_values = self._load_protected_values()
+        self._protected_values = self._load_values(("identifier", "free_text"))
+        # Result cells may never equal a stored personal value, even after case or
+        # spacing changes (for example lower(client)): identifiers, notes, birth
+        # dates and other unlisted text.
+        self._result_blocked = ({_norm(v) for v in self._protected_values}
+                                | {_norm(v) for v in self._load_values(("sensitive",))}
+                                | self._rare_text_values())
         self._scope_by_select: dict[int, Scope] = {}
 
     # ------------------------------------------------------------ public
@@ -402,26 +408,56 @@ class QueryGate:
                     f"{self.max_buckets} buckets (for example by year, month or ranges).")
         for r in rows:
             for v in r:
-                if isinstance(v, str) and v in self._protected_values:
-                    raise QueryRefused("The result would reveal individual identifier or note values.")
+                if isinstance(v, str) and _norm(v) in self._result_blocked:
+                    raise QueryRefused("The result would reveal individual identifier, personal or note values.")
 
     def protected_value_count(self) -> int:
         return len(self._protected_values)
 
     def contains_protected(self, text: str) -> bool:
         """Whether text contains a stored identifier or note value."""
-        tokens = set(_TOKEN.findall(text))
-        for value in self._protected_values:
-            if (value in tokens) if _TOKEN.fullmatch(value) else (value in text):
-                return True
-        return False
+        return bool(self.protected_matches(text, limit=1))
 
-    def _load_protected_values(self) -> set[str]:
+    def protected_matches(self, text: str, limit: int = 3) -> list[str]:
+        """Stored identifier or note values found in text (at most limit of them)."""
+        tokens = set(_TOKEN.findall(text))
+        found: list[str] = []
+        for value in sorted(self._protected_values):
+            if (value in tokens) if _TOKEN.fullmatch(value) else (value in text):
+                found.append(value)
+                if len(found) >= limit:
+                    break
+        return found
+
+    def _rare_text_values(self) -> set[str]:
+        """Unlisted text values held by only a few records (a household or a name that was not
+        recognized as one). Common values, such as a status in a change log, stay usable."""
+        common: set[str] = set()
+        conn = sqlite3.connect(f"file:{self.db_path.as_posix()}?mode=ro", uri=True)
+        try:
+            for (table, col), role in self._roles.items():
+                if role == "category":
+                    common |= {_norm(v) for (v,) in conn.execute(
+                        f'SELECT DISTINCT "{col}" FROM "{table}" WHERE "{col}" IS NOT NULL')}
+            rare: set[str] = set()
+            for (table, col), role in self._roles.items():
+                if role != "text":
+                    continue
+                for v, n in conn.execute(f'SELECT "{col}", COUNT(*) FROM "{table}" WHERE "{col}" IS NOT NULL '
+                                         f'GROUP BY 1 HAVING COUNT(*) <= {RARE_TEXT_MAX_ROWS}'):
+                    s = str(v)
+                    if len(s) >= 4 and not s.replace(".", "").isdigit() and _norm(s) not in common:
+                        rare.add(_norm(s))
+        finally:
+            conn.close()
+        return rare
+
+    def _load_values(self, roles: tuple[str, ...]) -> set[str]:
         values: set[str] = set()
         conn = sqlite3.connect(f"file:{self.db_path.as_posix()}?mode=ro", uri=True)
         try:
             for (table, col), role in self._roles.items():
-                if role not in ("identifier", "free_text"):
+                if role not in roles:
                     continue
                 for (v,) in conn.execute(f'SELECT DISTINCT "{col}" FROM "{table}" WHERE "{col}" IS NOT NULL'):
                     s = str(v)
@@ -433,6 +469,12 @@ class QueryGate:
 
 
 # ---------------------------------------------------------------- helpers
+
+RARE_TEXT_MAX_ROWS = 3
+
+def _norm(value: str) -> str:
+    return " ".join(str(value).split()).casefold()
+
 
 def _first_line(e: Exception) -> str:
     return str(e).strip().splitlines()[0][:300] if str(e).strip() else type(e).__name__

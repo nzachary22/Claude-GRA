@@ -62,6 +62,7 @@
       state[key] = [...state[key], ...files].filter((f, i, a) => a.findIndex((g) => g.name === f.name && g.size === f.size) === i);
       $(listId).innerHTML = state[key].map((f) => `<li>${esc(f.name)}</li>`).join("");
       $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
+      $("preview").disabled = !state.dataFiles.length;
     };
     input.onchange = () => { set([...input.files]); input.value = ""; };
     zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("over"); };
@@ -86,6 +87,25 @@
       msg("upload-msg", "");
       startPolling(id);
     } catch (err) { msg("upload-msg", err.message, "err"); $("start").disabled = false; }
+  };
+
+  // Shows the data description the AI would get, built on this computer; nothing is sent.
+  const ROLE_LABEL = { identifier: "Protected: ID or name", sensitive: "Protected: personal (bucketed only)", free_text: "Withheld: notes",
+    category: "Shared: list of values", date: "Shared: date range", measure: "Totals only", text: "Totals only (values not listed)" };
+  $("preview").onclick = async () => {
+    $("preview").disabled = true;
+    msg("upload-msg", "Reading your data files on this computer…");
+    const form = new FormData();
+    state.dataFiles.forEach((f) => form.append("data_files", f));
+    try {
+      const p = await api("/api/preview", { method: "POST", body: form });
+      msg("upload-msg", "Nothing was sent. Check that no client name, ID or address shows as Shared.", "ok");
+      $("preview-body").innerHTML = p.tables.map((t) => `<h4>${esc(t.file)}: ${t.rows.toLocaleString()} rows${t.code_list ? " (code list: its full contents are shared)" : ""}</h4>
+        <table><tr><th>Column</th><th>How the AI may use it</th></tr>${t.columns.map((c) => `<tr><td>${esc(c.header)}</td><td class="${["identifier", "sensitive", "free_text"].includes(c.role) ? "protected" : ""}">${esc(t.code_list && c.role === "category" ? "Shared: full contents" : ROLE_LABEL[c.role] || c.role)}</td></tr>`).join("")}</table>`).join("") +
+        `<details><summary>Exact text the AI would receive about the data</summary><pre>${esc(p.schema)}</pre></details>`;
+      $("preview-body").hidden = false;
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+    $("preview").disabled = !state.dataFiles.length;
   };
 
   // ------------------------------------------------------------ prepare
@@ -195,6 +215,23 @@
     state.timer = setInterval(poll, 1000);
   }
   $("correct-form").onsubmit = (e) => { e.preventDefault(); submitCorrection($("correct-text").value); };
+  $("delete-run").onclick = async () => {
+    if (!state.runId || !confirm("Delete this run's uploads, database and AI record from this computer? Download the tables and AI activity report first if you need them.")) return;
+    try {
+      await api(`/api/runs/${state.runId}`, { method: "DELETE" });
+      state.runId = null; state.last = null;
+      history.replaceState(null, "", location.pathname);
+      show("upload");
+      msg("upload-msg", "That run's files were deleted from this computer.", "ok");
+    } catch (err) { msg("review-msg", err.message, "err"); }
+  };
+  $("delete-all").onclick = async () => {
+    if (!confirm("Delete the files of every saved report run from this computer?")) return;
+    try {
+      const r = await api("/api/runs", { method: "DELETE" });
+      msg("delete-all-msg", `Deleted ${r.deleted} saved run(s).`, "ok");
+    } catch (err) { msg("delete-all-msg", err.message, "err"); }
+  };
   $("new-report").onclick = () => { history.replaceState(null, "", location.pathname); show("upload"); $("start").disabled = !(state.reportFiles.length && state.dataFiles.length); };
 
   $("copy").onclick = async () => {
