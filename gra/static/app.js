@@ -4,6 +4,7 @@
   const state = { reportFiles: [], dataFiles: [], runId: null, seen: 0, timer: null, last: null };
 
   // ------------------------------------------------------------ helpers
+  const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (cell) => cell.display ?? "";
   const kindLabel = (k) => ({ assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
@@ -60,14 +61,18 @@
     const zone = $(zoneId), input = $(inputId);
     const render = () => {
       const list = state[key];
-      $(listId).innerHTML = list.map((f, i) => `<li><span>${esc(f.name)}</span><button type="button" class="remove" data-i="${i}" aria-label="Remove ${esc(f.name)}" title="Remove">×</button></li>`).join("") +
+      $(listId).innerHTML = list.map((f, i) => `<li><span>${esc(f.name)} <span class="size">${sizeText(f.size)}</span></span><button type="button" class="remove" data-i="${i}" aria-label="Remove ${esc(f.name)}" title="Remove">×</button></li>`).join("") +
         (list.length > 1 ? `<li class="clear"><button type="button" class="link clear-all">Clear all</button></li>` : "");
       $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
       $("preview").disabled = !state.dataFiles.length;
       $("preview-body").hidden = true;  // a preview of other files would mislead
+      state.previewToken = (state.previewToken || 0) + 1;  // and one still loading is discarded
+      msg("upload-msg", "");
     };
     const set = (files) => {
-      state[key] = [...state[key], ...files].filter((f, i, a) => a.findIndex((g) => g.name === f.name && g.size === f.size) === i);
+      // A file chosen again replaces the earlier copy of the same name, so a corrected export is never ignored.
+      const names = new Set(files.map((f) => f.name));
+      state[key] = [...state[key].filter((f) => !names.has(f.name)), ...files];
       render();
     };
     // The list sits inside the clickable box, so its buttons must not open the file picker.
@@ -124,16 +129,18 @@
   }
   $("preview").onclick = async () => {
     $("preview").disabled = true;
+    const token = state.previewToken = (state.previewToken || 0) + 1;
     msg("upload-msg", "Reading your data files on this computer…");
     const form = new FormData();
     state.dataFiles.forEach((f) => form.append("data_files", f));
     try {
       const p = await api("/api/preview", { method: "POST", body: form });
+      if (token !== state.previewToken) return;  // the files changed while it loaded
       msg("upload-msg", "");
       $("preview-body").innerHTML = previewHtml(p);
       $("preview-body").hidden = false;
-    } catch (err) { msg("upload-msg", err.message, "err"); }
-    $("preview").disabled = !state.dataFiles.length;
+    } catch (err) { if (token === state.previewToken) msg("upload-msg", err.message, "err"); }
+    finally { $("preview").disabled = !state.dataFiles.length; }
   };
 
   // ------------------------------------------------------------ prepare

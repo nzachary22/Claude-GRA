@@ -114,3 +114,4 @@ table.report td[title] { cursor: help; }
 .preview pre { white-space: pre-wrap; font-size: 12px; background: var(--bg); padding: 10px; border-radius: 6px; max-height: 420px; overflow: auto; }
 .defs h4 { margin: 12px 0 2px; }
 .defs p { margin: 0 0 6px; max-width: 80ch; }
+.files .size { color: var(--muted); font-size: 12px; }
