@@ -63,7 +63,11 @@ def _query_summary(content: str) -> str:
     groups = [c for i, c in enumerate(columns) if any(isinstance(r[i], str) for r in rows)]
     measures = [c for c in columns if c not in groups]
     if groups:
-        return f"Totals by {_join(groups)} ({count})"
+        # A sample group label lets a reader see the kind of value sent, not just its column name.
+        spots = [columns.index(g) for g in groups]
+        sample = next((r for r in rows if all(r[i] is not None for i in spots)), None)
+        example = f", e.g. {' / '.join(_short(r_i, 24) for r_i in (sample[i] for i in spots))}" if sample else ""
+        return f"Totals by {_join(groups)} ({count}){example}"
     return f"Totals: {_join(measures)} ({count})"
 
 
@@ -82,7 +86,7 @@ def build_packets(events: list[dict], is_protected) -> list[Packet]:
     def add(status, request, response, checked=""):
         if status == SENT and checked and is_protected(checked):
             status = REVIEW
-        rows.append((status, _short(request), _short(response, 130)))
+        rows.append((status, _short(request), _short(response, 170)))
 
     for e in events:
         if e["kind"] == "instructions":
@@ -146,7 +150,7 @@ def _report_name(events: list[dict]) -> str:
 def _local_lines(catalog: Catalog) -> list[str]:
     data = [t for t in catalog.tables if not t.reference]
     records = sum(t.rows for t in data)
-    files = _join(sorted({t.source_file for t in data}), 6) if data else "none"
+    files = ", ".join(sorted({t.source_file for t in data})) or "none"
     protected = [c.source_name for t in data for c in t.columns if c.role in ("identifier", "sensitive")]
     free = [c.source_name for t in data for c in t.columns if c.role == "free_text"]
     lines = [f"All {records:,} individual client and case records, in: {files}"]

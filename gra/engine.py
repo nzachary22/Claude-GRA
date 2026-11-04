@@ -59,6 +59,7 @@ How the data access works:
 - Where the database description says a column was converted (dollar text to numbers, slash dates to YYYY-MM-DD), the stored values are in the new form. Values inside other text columns, such as a change log, keep their original form.
 - Sensitive columns (role=sensitive, such as birth dates) may be used in calculations (for example age on a date) but only output in bucketed form. Dates, measures and text must be bucketed (strftime, CASE ranges) before they appear in the final output; at most 120 distinct buckets per column and 500 result rows.
 - Free-text columns are withheld and cannot be queried. GROUP_CONCAT and similar list functions are blocked.
+- Name output columns in plain English, such as preferred_language or cases_closed, never abbreviations, because the names appear in a report the user reads.
 - If a query is refused, the message tells you why; rewrite it. Counts of 0 and 1 are normal results and are never suppressed.
 
 Reporting rules:

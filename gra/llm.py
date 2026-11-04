@@ -67,6 +67,13 @@ def check_api_key(key: str) -> str | None:
         return f"The AI service returned an error ({e.status_code})."
 
 
+def status_message(code: int, detail: str) -> str:
+    if "credit balance" in detail.lower():
+        return ("Your Anthropic account is out of API credit. Add credit at console.anthropic.com "
+                "under Plans & Billing, then start the report again.")
+    return f"The AI service returned an error ({code})."
+
+
 class ClaudeClient:
     def __init__(self, api_key: str, model: str = MODEL, effort: str = "high"):
         import anthropic
@@ -102,4 +109,4 @@ class ClaudeClient:
         except anthropic.APIConnectionError:
             raise RuntimeError("Could not reach the AI service. Check the internet connection.") from None
         except anthropic.APIStatusError as e:
-            raise RuntimeError(f"The AI service returned an error ({e.status_code}).") from None
+            raise RuntimeError(status_message(e.status_code, str(e))) from None

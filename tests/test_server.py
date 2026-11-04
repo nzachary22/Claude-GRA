@@ -107,3 +107,10 @@ def test_cancel_mid_run(tmp_path, monkeypatch, tiny_files):
 def test_page_status_does_not_load_the_slow_ai_library():
     code = "import sys, gra.server, gra.llm; gra.llm.get_api_key(); sys.exit('anthropic' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code], timeout=120).returncode == 0
+
+
+def test_out_of_credit_is_explained_in_plain_words():
+    from gra.llm import status_message
+
+    assert "out of API credit" in status_message(400, "Your credit balance is too low to access the Anthropic API.")
+    assert status_message(500, "server trouble") == "The AI service returned an error (500)."

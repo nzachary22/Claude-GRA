@@ -46,7 +46,7 @@ def test_packets_read_in_plain_language(tiny_db, tmp_path):
     assert [p.number for p in rows] == list(range(1, len(rows) + 1))
     by_request = {p.request: p for p in rows}
     assert by_request["Counting clients by gender"].status == SENT
-    assert by_request["Counting clients by gender"].response == "Totals by gender (4 rows)"
+    assert by_request["Counting clients by gender"].response.startswith("Totals by gender (4 rows), e.g. ")
     assert by_request["Counting all cases"].response == "Totals: cases (1 row)"
     assert by_request["A listing of clients"].status == DENIED
     assert "individual records" in by_request["A listing of clients"].response or "protected ID" in by_request["A listing of clients"].response
@@ -55,7 +55,7 @@ def test_packets_read_in_plain_language(tiny_db, tmp_path):
     assert by_request["Submit finished tables"].response.startswith("List of table problems")
     assert any("report.pdf" in p.response for p in rows)
     assert any(p.response.startswith("Data description") for p in rows)
-    assert all(len(p.response) <= 135 for p in rows)
+    assert all(len(p.response) <= 175 for p in rows)
 
 
 def test_a_protected_value_is_flagged_on_its_packet(tiny_db, tmp_path):
@@ -82,7 +82,7 @@ def test_report_says_what_stayed_and_what_left(tiny_db, tmp_path):
     for heading in ("What Was Sent to the AI", "Summary", "Stayed on this computer", "Sent to the AI", "Information packets", "Keep in mind"):
         assert heading in paragraphs
     assert "Example Center" in joined and "Reporting period 2025-01-01 to 2025-12-31" in joined
-    assert "All 179 individual client and case records, in: cases.csv and clients.csv" in joined
+    assert "All 179 individual client and case records, in: cases.csv, clients.csv" in joined
     assert "Client ID" in joined and "Date of Birth" in joined and "Intake Notes" in joined
     assert "Code lists, in full: problem_codes.csv" in joined
     assert "Totals from 2 approved queries, never individual records" in joined
