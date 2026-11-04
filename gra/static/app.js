@@ -119,7 +119,7 @@
       $("bar").style.display = "none";
       $("now").textContent = r.status === "failed" ? `Stopped: ${r.error || "the report could not be prepared."}` : "Cancelled.";
       if (r.tables.length) { const b = document.createElement("button"); b.className = "secondary"; b.textContent = "Review last draft"; b.onclick = () => renderReview(r); $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(b); }
-      const log = document.createElement("a"); log.href = `/api/runs/${state.runId}/activity-log`; log.textContent = "AI activity log";
+      const log = document.createElement("a"); log.href = `/api/runs/${state.runId}/activity-report`; log.textContent = "AI activity report";
       $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(log);
       const back = document.createElement("button"); back.className = "link"; back.textContent = "Back to upload";
       back.onclick = () => { show("upload"); $("start").disabled = false; };
@@ -142,7 +142,7 @@
     $("review-sub").textContent = (reportLine ? `${reportLine} · ` : "") + `Draft · Reporting period ${r.period[0]} to ${r.period[1]} · ${r.tables.length} table(s) · ${r.notes.length} note(s)` + (gaps ? ` · ${gaps} unavailable figure(s)` : "");
     $("dl-word").href = `/api/runs/${r.id}/export.docx`;
     $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
-    $("dl-log").href = `/api/runs/${r.id}/activity-log`;
+    $("dl-log").href = `/api/runs/${r.id}/activity-report`;
     const scope = noteScope(r);
     $("general-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
     $("tables").innerHTML = r.tables.map((t) => {
@@ -220,7 +220,7 @@
     if (!$("tech").open || !state.runId) return;
     try {
       const d = await api(`/api/runs/${state.runId}/details`);
-      $("tech-body").innerHTML = `<h4>Data description shared with the AI</h4><pre>${esc(d.schema)}</pre><h4>Calculations run (${d.queries.length})</h4>` +
+      $("tech-body").innerHTML = `<p><a href="/api/runs/${state.runId}/activity-log">Download the full word-for-word AI record</a></p><h4>Data description shared with the AI</h4><pre>${esc(d.schema)}</pre><h4>Calculations run (${d.queries.length})</h4>` +
         d.queries.map((q) => `<p><b>${esc(q.id)}</b> ${esc(q.purpose)} <span class="muted">(${q.row_count} rows, ${q.ms} ms)</span></p><pre>${esc(q.sql)}</pre>` +
           `<table><tr>${q.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${q.rows.slice(0, 50).map((row) => `<tr>${row.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</table>`).join("");
     } catch (err) { $("tech-body").textContent = err.message; }

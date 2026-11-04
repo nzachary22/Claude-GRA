@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .activity import read_events, render_text, sent_text
+from .activity_report import to_report_docx
 from .documents import to_blocks
 from .engine import ReportSession
 from .exports import to_docx, to_xlsx
@@ -193,9 +194,8 @@ def create_app(model_factory=None) -> FastAPI:
             {"id": q.query_id, "purpose": q.purpose, "sql": q.sql, "columns": q.columns, "rows": q.rows[:200],
              "row_count": len(q.rows), "ms": q.elapsed_ms} for q in log]}
 
-    @app.get("/api/runs/{run_id}/activity-log")
-    def activity_log(run_id: str):
-        """Also works after a restart, from the run's saved folder."""
+    def saved_activity(run_id: str):
+        """A run's record and gate; also works after a restart, from the saved folder."""
         if not re.fullmatch(r"[a-f0-9]{12}", run_id):
             raise HTTPException(404, "Unknown report run.")
         folder = app_data_dir() / "runs" / run_id
@@ -204,6 +204,18 @@ def create_app(model_factory=None) -> FastAPI:
             raise HTTPException(404, "No AI activity was recorded for this run.")
         run = runs.get(run_id)
         gate = run.session.gate if run and run.session else QueryGate(folder / "data.db", load_catalog(folder / "data.db"))
+        return events, gate
+
+    @app.get("/api/runs/{run_id}/activity-report")
+    def activity_report(run_id: str):
+        events, gate = saved_activity(run_id)
+        data = to_report_docx(events, gate.catalog, gate.contains_protected, gate.protected_value_count())
+        return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        headers={"Content-Disposition": f'attachment; filename="ai-activity-report-{run_id}.docx"'})
+
+    @app.get("/api/runs/{run_id}/activity-log")
+    def activity_log(run_id: str):
+        events, gate = saved_activity(run_id)
         hits = [e["seq"] for e in events if sent_text(e) and gate.contains_protected(sent_text(e))]
         text = render_text(events, hits, gate.protected_value_count(), run_id)
         return Response(text, media_type="text/plain; charset=utf-8", headers={
