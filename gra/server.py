@@ -240,6 +240,7 @@ def _work(run: Run, factory):
             _event(run, "cancelled", "Stopped at your request")
             return
         gate = QueryGate(db, catalog)
+        _event(run, "status", "Connecting to the AI service")
         model = factory()
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model)
         run.status = "running"
@@ -300,6 +301,7 @@ def main():
     import uvicorn
 
     port = 8765
+    threading.Thread(target=lambda: __import__("anthropic"), daemon=True).start()
     threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 

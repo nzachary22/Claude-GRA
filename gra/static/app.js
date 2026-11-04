@@ -72,15 +72,15 @@
   bindDrop("drop-data", "data-files", "data-list", "dataFiles");
 
   $("start").onclick = async () => {
+    $("start").disabled = true;
+    msg("upload-msg", "Uploading…");
     const s = await checkStatus();
-    if (!s.has_key) { msg("upload-msg", "Add your API key above first.", "err"); return; }
+    if (!s.has_key) { msg("upload-msg", "Add your API key above first.", "err"); $("start").disabled = false; return; }
     const form = new FormData();
     state.reportFiles.forEach((f) => form.append("report_files", f));
     state.dataFiles.forEach((f) => form.append("data_files", f));
     form.append("period_start", $("period-start").value);
     form.append("period_end", $("period-end").value);
-    $("start").disabled = true;
-    msg("upload-msg", "Uploading…");
     try {
       const { id } = await api("/api/runs", { method: "POST", body: form });
       msg("upload-msg", "");

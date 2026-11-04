@@ -2,14 +2,15 @@
 
 The key is entered once in the app and kept in the operating system's
 credential store (Windows Credential Manager), never in the repository.
+
+The Anthropic SDK can take close to a minute to import on a slow or busy
+computer, so it loads only when needed and the page never waits on it.
 """
 
 from __future__ import annotations
 
 import os
 from typing import Callable
-
-import anthropic
 
 from .engine import Cancelled
 
@@ -51,6 +52,8 @@ def save_api_key(key: str) -> None:
 
 def check_api_key(key: str) -> str | None:
     """Return None if the key works, else a plain-language problem."""
+    import anthropic
+
     try:
         anthropic.Anthropic(api_key=key.strip(), max_retries=1).models.retrieve(MODEL)
         return None
@@ -66,11 +69,15 @@ def check_api_key(key: str) -> str | None:
 
 class ClaudeClient:
     def __init__(self, api_key: str, model: str = MODEL, effort: str = "high"):
+        import anthropic
+
         self.client = anthropic.Anthropic(api_key=api_key, max_retries=4)
         self.model = model
         self.effort = effort
 
     def respond(self, system: str, messages: list, tools: list, should_cancel: Callable[[], bool]):
+        import anthropic
+
         try:
             with self.client.beta.messages.stream(
                 model=self.model,
