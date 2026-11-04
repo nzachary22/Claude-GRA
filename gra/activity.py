@@ -117,7 +117,7 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
     else:
         out.append("No stored identifier or note value was found in the text sent.")
     out += [f"Values checked: {protected_checked}.",
-            "Covers text and results this app sent. Uploaded PDFs and images are not scanned, so review them yourself.",
+            "Covers text and results this app sent. Before sending, the text of uploaded reports was also checked for names and IDs from your data; images and scanned PDFs cannot be checked, so review them yourself.",
             "Values under 4 characters or made only of digits, and birth dates, are not checked because they match ordinary numbers and dates.",
             "", "LIMITS OF THIS LOG",
             "It records what this app sent and received. It cannot show how the AI service stores or handles data; that depends on your Anthropic account terms.",

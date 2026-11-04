@@ -261,7 +261,7 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
         fill(cells[3], p.response, widths[3])
 
     bullets("Keep in mind", [
-        "Uploaded PDFs and images go to the AI in full and are not checked automatically. Review them for client details.",
+        "Uploaded reports go to the AI in full. Their text is checked first for names and IDs from your data, but images and scanned PDFs cannot be checked. Review them for client details.",
         "The automatic check skips birth dates and short or number-only values, because they match ordinary numbers and dates.",
         "This shows what this app sent. How the AI service stores data depends on your Anthropic account terms.",
         "The complete word-for-word record is available from Technical details in the app.",

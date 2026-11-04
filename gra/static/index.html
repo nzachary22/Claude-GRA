@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 <body>
   <header class="top">
@@ -41,14 +41,14 @@
         <label class="drop" id="drop-report">
           <input type="file" id="report-files" multiple accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg">
           <strong>Last report or grant requirements</strong>
-          <span class="muted">PDF, Word, Excel, text or image</span>
+          <span class="muted">Click or drop to add: PDF, Word, Excel, text or image</span>
           <span class="muted warn-line">Sent to the AI in full. Remove any client names or stories first.</span>
           <ul class="files" id="report-list"></ul>
         </label>
         <label class="drop" id="drop-data">
           <input type="file" id="data-files" multiple accept=".csv,.xlsx,.xlsm,.json,.tsv,.txt">
           <strong>Current client and case data</strong>
-          <span class="muted">CSV, Excel or JSON exports. These stay on this computer.</span>
+          <span class="muted">Click or drop to add: CSV, Excel or JSON exports. These stay on this computer.</span>
           <ul class="files" id="data-list"></ul>
         </label>
       </div>
@@ -110,6 +110,6 @@
       </details>
     </section>
   </main>
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/app.js?v=7"></script>
 </body>
 </html>

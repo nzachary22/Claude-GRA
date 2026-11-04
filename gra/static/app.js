@@ -58,11 +58,26 @@
 
   function bindDrop(zoneId, inputId, listId, key) {
     const zone = $(zoneId), input = $(inputId);
-    const set = (files) => {
-      state[key] = [...state[key], ...files].filter((f, i, a) => a.findIndex((g) => g.name === f.name && g.size === f.size) === i);
-      $(listId).innerHTML = state[key].map((f) => `<li>${esc(f.name)}</li>`).join("");
+    const render = () => {
+      const list = state[key];
+      $(listId).innerHTML = list.map((f, i) => `<li><span>${esc(f.name)}</span><button type="button" class="remove" data-i="${i}" aria-label="Remove ${esc(f.name)}" title="Remove">×</button></li>`).join("") +
+        (list.length > 1 ? `<li class="clear"><button type="button" class="link clear-all">Clear all</button></li>` : "");
       $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
       $("preview").disabled = !state.dataFiles.length;
+      $("preview-body").hidden = true;  // a preview of other files would mislead
+    };
+    const set = (files) => {
+      state[key] = [...state[key], ...files].filter((f, i, a) => a.findIndex((g) => g.name === f.name && g.size === f.size) === i);
+      render();
+    };
+    // The list sits inside the clickable box, so its buttons must not open the file picker.
+    $(listId).onclick = (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      e.preventDefault(); e.stopPropagation();
+      if (btn.classList.contains("clear-all")) state[key] = [];
+      else state[key].splice(Number(btn.dataset.i), 1);
+      render();
     };
     input.onchange = () => { set([...input.files]); input.value = ""; };
     zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("over"); };
