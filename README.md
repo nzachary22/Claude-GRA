@@ -1,4 +1,4 @@
-# Grant Reporting Assistant V.1.0
+# Grant Reporting Assistant V.1.1
 
 A local web application that rebuilds grant-report tables from current client and case data.
 
@@ -10,11 +10,11 @@ Workflow: **Upload → Prepare automatically → Review**, with Copy, Word and E
 
 ## Running it
 
-Requirements: Windows, Python 3.11 or newer from [python.org](https://www.python.org/downloads/) (tick "Add python.exe to PATH" when installing), an Anthropic API key, and an internet connection while preparing a report.
+Requirements: Windows, Python 3.11 or newer from [python.org](https://www.python.org/downloads/) (tick "Add python.exe to PATH" when installing), an API key from Anthropic (Claude) or OpenAI, and an internet connection while preparing a report.
 
-1. Download `grant-reporting-assistant-1.0.0.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases) and unzip it to a local folder, such as `Documents\Grant Reporting Assistant`. Avoid OneDrive, Google Drive or Dropbox folders.
+1. Download `grant-reporting-assistant-1.1.0.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases) and unzip it to a local folder, such as `Documents\Grant Reporting Assistant`. Avoid OneDrive, Google Drive or Dropbox folders.
 2. Double-click `start.bat`. The first run sets up a private Python environment in `%LOCALAPPDATA%\GrantReportingAssistant` (about a minute) and opens the app at `http://127.0.0.1:8765/`.
-3. Paste an Anthropic API key once; it is stored in Windows Credential Manager.
+3. Choose Anthropic (Claude) or OpenAI and paste your API key once; it is stored in Windows Credential Manager. Both keys can be saved, and Settings switches between them.
 4. Keep the black window open while using the app; close it to stop.
 
 To update, replace the program folder with the new version and run `start.bat`; it re-runs setup when needed, and saved runs and the API key are kept. To remove everything, use **Delete all saved runs** in Settings, delete the program folder and `%LOCALAPPDATA%\GrantReportingAssistant`, and remove the "GrantReportingAssistant" entry from Windows Credential Manager.
@@ -34,10 +34,11 @@ Using the app:
 | `gra/gate.py` | Checks and runs each AI query read-only. Only aggregates leave; identifiers work only for joins and distinct counts; probes, listings, unsafe statements and revealing errors are refused. |
 | `gra/tables.py` | Fills every number from a local query result and computes totals; the AI cannot type a figure in. |
 | `gra/engine.py` | Runs the bounded AI loop (query, turn and time limits, cancel, corrections). |
+| `gra/llm.py`, `gra/llm_openai.py` | Connect to the chosen AI service. Both services get exactly the same instructions, tools and protected data description; OpenAI requests are sent with storage turned off. |
 
 ## Before using real client data
 
-- **Preview what the AI will see** (upload screen) imports the exports on this computer and shows how each column will be treated and the exact data description Claude would receive. Nothing is sent. Check that no name, ID or address shows as Shared.
+- **Preview what the AI will see** (upload screen) imports the exports on this computer and shows how each column will be treated and the exact data description the AI would receive. Nothing is sent. Check that no name, ID or address shows as Shared.
 - Uploaded reports are sent to the AI in full. Before sending, the app checks their text for names, IDs and notes from the uploaded data and stops if it finds a full name or ID. Images and scanned PDFs cannot be checked.
 - Corrections that mention a stored name, ID or note are refused.
 - **Delete this run's files** (review screen) and **Delete all saved runs** (Settings) remove uploads, databases and AI records from this computer.

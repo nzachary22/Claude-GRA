@@ -1,5 +1,5 @@
 @echo off
-rem Grant Reporting Assistant V.1.0 - starts the local app and opens the browser.
+rem Grant Reporting Assistant V.1.1 - starts the local app and opens the browser.
 rem Setup runs on first use, and again whenever this folder moves or a new version
 rem changes the requirements. The Python environment lives outside this folder.
 setlocal

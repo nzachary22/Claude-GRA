@@ -35,20 +35,61 @@
   function msg(id, text, kind = "") { const el = $(id); el.textContent = text; el.className = `msg ${kind}`; }
 
   // ------------------------------------------------------------ setup
+  const KEY_HELP = {
+    anthropic: { placeholder: "sk-ant-...", help: "Create a key at console.anthropic.com under API keys." },
+    openai: { placeholder: "sk-...", help: "Create a key at platform.openai.com under API keys." },
+  };
+  const chosen = () => document.querySelector('input[name="provider"]:checked').value;
+  function showProvider(s) {
+    const p = chosen();
+    $("key-input").placeholder = KEY_HELP[p].placeholder;
+    const saved = s?.keys?.[p];
+    $("key-help").textContent = saved
+      ? `${KEY_HELP[p].help} A key is already saved; paste a new one only to replace it.`
+      : KEY_HELP[p].help;
+    $("key-input").required = !saved;
+    document.querySelectorAll(".key-state").forEach((el) => {
+      const k = el.dataset.for;
+      el.textContent = s?.keys?.[k] ? (k === s.provider ? "· key saved, in use" : "· key saved") : "";
+    });
+  }
   async function checkStatus() {
     const s = await api("/api/status");
+    state.status = s;
     $("setup").hidden = s.has_key;
+    const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
+    if (radio && !state.providerTouched) radio.checked = true;
+    showProvider(s);
     return s;
   }
   $("settings-btn").onclick = () => { $("setup").hidden = !$("setup").hidden; };
+  $("providers").onchange = async () => {
+    state.providerTouched = true;
+    showProvider(state.status);
+    const p = chosen();
+    msg("key-msg", "");
+    if (!state.status?.keys?.[p] || state.status.provider === p) return;
+    // A service with a saved key is switched to at once, with no key to re-enter.
+    try {
+      await api("/api/provider", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: p }) });
+      state.providerTouched = false;
+      await checkStatus();
+      msg("key-msg", `New reports will use ${p === "openai" ? "OpenAI" : "Anthropic Claude"}.`, "ok");
+    } catch (err) { msg("key-msg", err.message, "err"); }
+  };
   $("key-form").onsubmit = async (e) => {
     e.preventDefault();
+    const p = chosen();
+    if (!$("key-input").value.trim()) { msg("key-msg", "Paste an API key.", "err"); return; }
     msg("key-msg", "Checking the key…");
     try {
-      await api("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: $("key-input").value }) });
+      await api("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: $("key-input").value, provider: p }) });
       $("key-input").value = "";
-      msg("key-msg", "Saved.", "ok");
-      setTimeout(() => { $("setup").hidden = true; }, 900);
+      state.providerTouched = false;
+      await checkStatus();
+      $("setup").hidden = false;
+      msg("key-msg", `Saved. New reports will use ${p === "openai" ? "OpenAI" : "Anthropic Claude"}.`, "ok");
+      setTimeout(() => { $("setup").hidden = true; }, 1200);
     } catch (err) { msg("key-msg", err.message, "err"); }
   };
 
@@ -117,15 +158,15 @@
       ? `<ul class="chips">${items.map((c) => `<li><b>${esc(c.header)}</b>${extra(c)}${where(c)}</li>`).join("")}</ul>`
       : `<p class="muted">None.</p>`;
     const records = p.files.reduce((n, f) => n + f.rows, 0);
-    const kept = `<div class="pv-box pv-kept"><h4>Stays on this computer</h4><p>Claude never sees these values.</p>
+    const kept = `<div class="pv-box pv-kept"><h4>Stays on this computer</h4><p>The AI never sees these values.</p>
       ${chips(p.kept, (c) => ` <span class="why">${esc(c.why)}</span>`)}</div>`;
-    const listed = `<div class="pv-box pv-check"><h4>Check these: Claude sees the possible answers</h4><p>Only a summary of the different answers found in each column, never the full column or which client gave which answer. Make sure no list contains a name, ID or address.</p>
+    const listed = `<div class="pv-box pv-check"><h4>Check these: the AI sees the possible answers</h4><p>Only a summary of the different answers found in each column, never the full column or which client gave which answer. Make sure no list contains a name, ID or address.</p>
       ${p.listed.length ? `<ul class="lists">${p.listed.map((c) => `<li><b>${esc(c.header)}</b>${where(c)}<span class="vals"><span class="why">${c.count} possible answer${c.count === 1 ? "" : "s"}:</span> ${c.examples.map(esc).join(", ")}${c.count > c.examples.length ? `, and ${c.count - c.examples.length} more` : ""}</span></li>`).join("")}</ul>` : `<p class="muted">None.</p>`}
       ${p.code_lists.length ? `<p class="code-lists">Code lists shared in full (they define codes and hold no client records): ${p.code_lists.map((c) => `<b>${esc(c.file)}</b> (${c.rows} rows: ${c.columns.map(esc).join(", ")})`).join("; ")}</p>` : ""}</div>`;
-    const totals = `<div class="pv-box pv-totals"><h4>Totals only</h4><p>Claude can count, add up or group these, but never sees a single record's value.</p>${chips(p.totals)}</div>`;
-    return `<p class="pv-head"><b>Nothing has been sent.</b> This is what Claude would get from ${p.files.length} file(s), ${records.toLocaleString()} records.</p>
+    const totals = `<div class="pv-box pv-totals"><h4>Totals only</h4><p>The AI can count, add up or group these, but never sees a single record's value.</p>${chips(p.totals)}</div>`;
+    return `<p class="pv-head"><b>Nothing has been sent.</b> This is what the AI would get from ${p.files.length} file(s), ${records.toLocaleString()} records.</p>
       <div class="pv-grid">${kept}${listed}${totals}</div>
-      <details><summary>Exact text Claude would receive about the data</summary><pre>${esc(p.schema)}</pre></details>`;
+      <details><summary>Exact text the AI would receive about the data</summary><pre>${esc(p.schema)}</pre></details>`;
   }
   $("preview").onclick = async () => {
     $("preview").disabled = true;

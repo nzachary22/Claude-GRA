@@ -1,8 +1,9 @@
-"""Opt-in live evaluation: Claude rebuilds the Juniper Ridge tables and is scored.
+"""Opt-in live evaluation: the AI rebuilds the Juniper Ridge tables and is scored.
 
-    python -m tests.live_eval 2025        (uses the saved API key; costs API credit)
+    python -m tests.live_eval 2025            (the service chosen in Settings; costs API credit)
+    python -m tests.live_eval 2025 openai     (or anthropic, to pick the service)
 
-Claude chooses its own labels, so cells are matched to the expected figures by
+The AI chooses its own labels, so cells are matched to the expected figures by
 normalized row label and column header. Results and a progress log are saved in
 the local app-data folder, not the repository.
 """
@@ -19,7 +20,7 @@ from gra.documents import to_blocks
 from gra.engine import ReportSession
 from gra.gate import QueryGate
 from gra.importer import import_files
-from gra.llm import ClaudeClient, get_api_key
+from gra.llm import make_client
 from gra.paths import app_data_dir
 from gra.schema import describe
 from tests.test_juniper_e2e import ROOT, expected
@@ -79,18 +80,19 @@ def _gender_any(tables, header):
     return "missing"
 
 
-def main(year: int):
+def main(year: int, provider: str | None = None):
     data = ROOT / "data" / str(year)
     out = app_data_dir() / "evals" / time.strftime(f"juniper-{year}-%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
     db = out / "data.db"
     catalog = import_files(db, sorted(data.glob("*.csv")))
     gate = QueryGate(db, catalog)
-    key = get_api_key()
-    if not key:
-        sys.exit("No API key found.")
+    try:
+        model = make_client(provider)
+    except RuntimeError as e:
+        sys.exit(str(e))
     session = ReportSession(gate, describe(db, catalog), to_blocks(ROOT / "report" / "juniper-ridge-grant-report-2025.pdf"),
-                            (f"{year}-01-01", f"{year}-12-31"), ClaudeClient(key))
+                            (f"{year}-01-01", f"{year}-12-31"), model)
     start = time.time()
     session.run()
     elapsed = time.time() - start
@@ -99,7 +101,7 @@ def main(year: int):
     checks = score(session, expected(year), outcomes) if session.tables else []
     ok = sum(1 for c in checks if c[3] == c[4])
     summary = {
-        "year": year, "status": session.status, "error": session.error, "seconds": round(elapsed),
+        "year": year, "provider": model.provider, "model": model.model, "status": session.status, "error": session.error, "seconds": round(elapsed),
         "queries_run": session.queries_used, "refused": sum(1 for e in session.events if e.kind == "refused"),
         "tables": [t.title for t in session.tables], "cells_checked": len(checks), "cells_matching": ok,
         "mismatches": [c for c in checks if c[3] != c[4]][:80],
@@ -110,10 +112,10 @@ def main(year: int):
     (out / "tables.json").write_text(json.dumps([t.to_dict() for t in session.tables], indent=2, default=str), encoding="utf-8")
     (out / "queries.json").write_text(json.dumps([{"id": q.query_id, "purpose": q.purpose, "sql": q.sql, "columns": q.columns,
                                                    "rows": q.rows} for q in gate.log], indent=2, default=str), encoding="utf-8")
-    print(json.dumps({k: summary[k] for k in ("year", "status", "error", "seconds", "queries_run", "refused",
+    print(json.dumps({k: summary[k] for k in ("year", "provider", "model", "status", "error", "seconds", "queries_run", "refused",
                                               "tables", "cells_checked", "cells_matching")}, indent=2))
     print("saved to", out)
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 2025)
+    main(int(sys.argv[1]) if len(sys.argv) > 1 else 2025, sys.argv[2] if len(sys.argv) > 2 else None)

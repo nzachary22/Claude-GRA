@@ -194,7 +194,8 @@ class ReportSession:
         self.report: dict = {}
         self.events: list[Event] = []
         self.activity = ActivityLog(activity_path)
-        self.activity.add("run_start", "local", period=list(period), model=getattr(model, "model", None))
+        self.activity.add("run_start", "local", period=list(period), model=getattr(model, "model", None),
+                          provider=getattr(model, "provider", None), stored=getattr(model, "stored", None))
         self._logged_messages = 0
         self._requests = 0
         self.status = "ready"  # ready | running | done | failed | cancelled
@@ -234,7 +235,7 @@ class ReportSession:
     # ------------------------------------------------------------ loop
 
     def _log_outgoing(self):
-        """Record what is about to be sent. Claude's own earlier replies are logged when received."""
+        """Record what is about to be sent. The AI's own earlier replies are logged when received."""
         if self._requests == 0:
             self.activity.add("instructions", "sent", text=SYSTEM_PROMPT)
             self.activity.add("tools", "sent", tools=TOOLS)

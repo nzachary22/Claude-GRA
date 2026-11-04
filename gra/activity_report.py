@@ -11,7 +11,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from .activity import sent_text
+from .activity import sent_text, service_names
 from .importer import Catalog
 
 SENT, DENIED, REVIEW = "Sent to AI", "Denied", "Sent to AI: REVIEW"
@@ -203,7 +203,8 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
     style.font.size = Pt(11)
 
     doc.add_heading("What Was Sent to the AI", level=0)
-    doc.add_paragraph(" · ".join(x for x in (name, f"Reporting period {period[0]} to {period[1]}") if x))
+    doc.add_paragraph(" · ".join(x for x in (name, f"Reporting period {period[0]} to {period[1]}",
+                                             f"AI service: {service_names(start)[0]}") if x))
 
     doc.add_heading("Summary", level=1)
     doc.add_paragraph(f"{len(packets) - denied} information packets were sent to the AI, and {denied} "
@@ -263,7 +264,7 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
     bullets("Keep in mind", [
         "Uploaded reports go to the AI in full. Their text is checked first for names and IDs from your data, but images and scanned PDFs cannot be checked. Review them for client details.",
         "The automatic check skips birth dates and short or number-only values, because they match ordinary numbers and dates.",
-        "This shows what this app sent. How the AI service stores data depends on your Anthropic account terms.",
+        f"This shows what this app sent. How the AI service stores data depends on your {service_names(start)[1]} account terms.",
         "The complete word-for-word record is available from Technical details in the app.",
     ])
     buf = io.BytesIO()

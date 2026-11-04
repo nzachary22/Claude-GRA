@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
-  <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 <body>
   <header class="top">
-    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.0</span></div>
+    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.1</span></div>
     <nav class="steps" aria-label="Progress">
       <span data-step="upload" class="active">1 Upload</span>
       <span data-step="prepare">2 Prepare</span>
@@ -21,12 +21,18 @@
     <!-- One-time setup -->
     <section id="setup" class="card" hidden>
       <h2>One-time setup</h2>
-      <p>The assistant uses Claude to read your report and plan the calculations. Paste your Anthropic API key once; it is stored in Windows Credential Manager on this computer.</p>
-      <p class="muted">Client records never leave this computer. Claude only receives your report, a description of the data columns and totals calculated here.</p>
+      <p>The assistant uses an AI service to read your report and plan the calculations. Choose Anthropic (Claude) or OpenAI and paste your own API key once; it is stored in Windows Credential Manager on this computer. You pay the service directly for what you use.</p>
+      <p class="muted">Client records never leave this computer, whichever service you choose. The AI only receives your report, a description of the data columns and totals calculated here.</p>
+      <fieldset class="providers" id="providers">
+        <legend>AI service</legend>
+        <label><input type="radio" name="provider" value="anthropic" checked> Anthropic Claude <span class="key-state" data-for="anthropic"></span></label>
+        <label><input type="radio" name="provider" value="openai"> OpenAI <span class="key-state" data-for="openai"></span></label>
+      </fieldset>
       <form id="key-form" class="row">
         <input id="key-input" type="password" autocomplete="off" placeholder="sk-ant-..." aria-label="API key" required>
         <button type="submit" class="primary">Save key</button>
       </form>
+      <p class="muted" id="key-help"></p>
       <p id="key-msg" class="msg" role="status"></p>
       <h3>Saved report files</h3>
       <p class="muted">The app keeps the uploads, database and AI record of the five most recent runs on this computer, then deletes older ones.</p>
@@ -111,6 +117,6 @@
       </details>
     </section>
   </main>
-  <script src="/static/app.js?v=9"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

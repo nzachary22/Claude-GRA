@@ -1,34 +1,104 @@
-"""Claude client and API key storage.
+"""AI service choice, API key storage and the Claude client.
 
-The key is entered once in the app and kept in the operating system's
-credential store (Windows Credential Manager), never in the repository.
+The user picks Anthropic (Claude) or OpenAI and enters their own API key once.
+Keys are kept in the operating system's credential store (Windows Credential
+Manager), never in the repository; the choice of service is kept in the local
+app-data folder. The OpenAI client lives in llm_openai.py.
 
-The Anthropic SDK can take close to a minute to import on a slow or busy
-computer, so it loads only when needed and the page never waits on it.
+The AI SDKs can take close to a minute to import on a slow or busy computer,
+so they load only when needed and the page never waits on them.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Callable
 
 from .engine import Cancelled
+from .paths import app_data_dir
 
 MODEL = "claude-opus-5-5"
 _KEYRING_SERVICE = "GrantReportingAssistant"
-_KEYRING_USER = "anthropic_api_key"
+PROVIDERS = {
+    "anthropic": {"label": "Anthropic Claude", "env": "ANTHROPIC_API_KEY", "keyring_user": "anthropic_api_key",
+                  "terms": "Anthropic"},
+    "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY", "keyring_user": "openai_api_key", "terms": "OpenAI"},
+}
+DEFAULT_PROVIDER = "anthropic"
 
 
-def get_api_key() -> str | None:
-    env = os.environ.get("ANTHROPIC_API_KEY") or _windows_user_env("ANTHROPIC_API_KEY")
+def _check_provider(provider: str) -> str:
+    if provider not in PROVIDERS:
+        raise ValueError(f"Unknown AI service: {provider}")
+    return provider
+
+
+def get_api_key(provider: str | None = None) -> str | None:
+    p = PROVIDERS[_check_provider(provider or active_provider())]
+    env = os.environ.get(p["env"]) or _windows_user_env(p["env"])
     if env:
         return env
     try:
         import keyring
 
-        return keyring.get_password(_KEYRING_SERVICE, _KEYRING_USER)
+        return keyring.get_password(_KEYRING_SERVICE, p["keyring_user"])
     except Exception:
         return None
+
+
+def _settings_path():
+    return app_data_dir() / "settings.json"
+
+
+def saved_provider() -> str | None:
+    try:
+        value = json.loads(_settings_path().read_text(encoding="utf-8")).get("provider")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return value if value in PROVIDERS else None
+
+
+def set_provider(provider: str) -> None:
+    path = _settings_path()
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+        settings = settings if isinstance(settings, dict) else {}
+    except (OSError, ValueError):
+        settings = {}
+    settings["provider"] = _check_provider(provider)
+    path.write_text(json.dumps(settings), encoding="utf-8")
+
+
+def active_provider() -> str:
+    """The chosen service; before any choice, the one with a key (Anthropic if both or neither)."""
+    chosen = saved_provider()
+    if chosen:
+        return chosen
+    if not _has_key(DEFAULT_PROVIDER) and _has_key("openai"):
+        return "openai"
+    return DEFAULT_PROVIDER
+
+
+def _has_key(provider: str) -> bool:
+    return bool(get_api_key(provider))
+
+
+def key_status() -> dict:
+    return {name: _has_key(name) for name in PROVIDERS}
+
+
+def make_client(provider: str | None = None):
+    """A model client for the chosen service, or a plain-language error if no key is set up."""
+    provider = _check_provider(provider or active_provider())
+    key = get_api_key(provider)
+    if not key:
+        raise RuntimeError(f"No {PROVIDERS[provider]['label']} API key is set up yet. Add it under Settings.")
+    if provider == "openai":
+        from .llm_openai import OpenAIClient
+
+        return OpenAIClient(key)
+    return ClaudeClient(key)
 
 
 def _windows_user_env(name: str) -> str | None:
@@ -44,14 +114,18 @@ def _windows_user_env(name: str) -> str | None:
         return None
 
 
-def save_api_key(key: str) -> None:
+def save_api_key(key: str, provider: str = DEFAULT_PROVIDER) -> None:
     import keyring
 
-    keyring.set_password(_KEYRING_SERVICE, _KEYRING_USER, key.strip())
+    keyring.set_password(_KEYRING_SERVICE, PROVIDERS[_check_provider(provider)]["keyring_user"], key.strip())
 
 
-def check_api_key(key: str) -> str | None:
+def check_api_key(key: str, provider: str = DEFAULT_PROVIDER) -> str | None:
     """Return None if the key works, else a plain-language problem."""
+    if _check_provider(provider) == "openai":
+        from .llm_openai import check_api_key as check_openai
+
+        return check_openai(key)
     import anthropic
 
     try:
@@ -75,6 +149,8 @@ def status_message(code: int, detail: str) -> str:
 
 
 class ClaudeClient:
+    provider = "anthropic"
+
     def __init__(self, api_key: str, model: str = MODEL, effort: str = "high"):
         import anthropic
 
