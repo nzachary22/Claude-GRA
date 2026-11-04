@@ -78,6 +78,9 @@ Submitting tables:
 - Set display formats to match the report: "format" of number, percent or currency, plus "decimals", on a column, a row or a single cell (cell wins over row, row over column). Percent values are on a 0-100 scale. If the report shows 31.6% and $2,531,174, use percent with 1 decimal and currency with 0.
 - If the report's table has a header above its row labels (for example "Age at intake"), put it in "row_header".
 - Pass "report" with the organization name and report title as printed on the report, and a "subtitle" for its descriptive line if it has one, using the current period.
+- If the report has a section defining what the figures count (for example "What the figures count", "Reporting definitions" or a methodology page), reproduce it in "report"."definitions" as headed paragraphs, adapted to the current period (shifted dates, the new period). Definitions state rules, never results: do not put a calculated count or total in them. If a table, subtitle or note refers the reader to the definitions, include them.
+- Only carry over statements about the data that the current data or the report's definitions support. A claim about how the data was recorded (for example who is counted in a category) that the data cannot confirm is either dropped or worded as the report's definition ("As defined in the report, ...").
+- If an uploaded document says the data is for practice, testing or demonstration only, that no report should be produced from it, or otherwise limits its use, record a "warning" note quoting that limit, so the user sees it beside the tables.
 - Put a table's descriptive line in its own "subtitle" rather than in "title". A figure in a subtitle or note must be a {placeholder} bound in that table's "values" with the same form as a cell, for example "Unduplicated clients: {clients}" with "values": {"clients": {"query": "Q1", "column": "n"}}. Never type a calculated figure into any text.
 - If the app rejects a submission it explains why; fix the problems and submit again. When accepted, you are done.
 
@@ -126,6 +129,12 @@ TOOLS = [
                         "organization": {"type": "string"},
                         "title": {"type": "string"},
                         "subtitle": {"type": "string"},
+                        "definitions": {
+                            "type": "array",
+                            "description": "The report's definitions of what the figures count, adapted to the current period. Rules only, no calculated figures.",
+                            "items": {"type": "object", "properties": {"heading": {"type": "string"}, "text": {"type": "string"}},
+                                      "required": ["text"]},
+                        },
                     },
                 },
                 "tables": {
@@ -182,7 +191,7 @@ class ReportSession:
         self.messages: list = [{"role": "user", "content": self._opening(schema_text, document_blocks, period)}]
         self.tables: list[Table] = []
         self.notes: dict[str, Note] = {}
-        self.report: dict[str, str] = {}
+        self.report: dict = {}
         self.events: list[Event] = []
         self.activity = ActivityLog(activity_path)
         self.activity.add("run_start", "local", period=list(period), model=getattr(model, "model", None))
@@ -370,10 +379,22 @@ class ReportSession:
             self.tables = tables
             if isinstance(report, dict):
                 self.report = {k: str(report[k])[:300] for k in ("organization", "title", "subtitle") if report.get(k)}
+                defs = _definitions(report.get("definitions"))
+                if defs:
+                    self.report["definitions"] = defs
         summary = [{"id": t.id, "title": t.title, "rows": len(t.rows),
                     "gaps": sum(1 for r in t.rows for c in r.cells if c.gap)} for t in tables]
         self._emit("tables", f"Assembled {len(tables)} table(s)")
         return "Accepted. Tables are final: " + json.dumps(summary), False, True
+
+
+def _definitions(value) -> list[dict]:
+    """Headed definition paragraphs from a submission, bounded in number and length."""
+    out = []
+    for d in value if isinstance(value, list) else []:
+        if isinstance(d, dict) and str(d.get("text") or "").strip():
+            out.append({"heading": str(d.get("heading") or "").strip()[:200], "text": str(d["text"]).strip()[:3000]})
+    return out[:40]
 
 
 def _get(obj, key):

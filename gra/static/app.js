@@ -198,6 +198,8 @@
       return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3>${t.subtitle ? `<p class="table-sub">${esc(t.subtitle)}</p>` : ""}<div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
         <aside class="notes">${notes.length ? notes.map((n) => noteHtml(n)).join("") : '<p class="muted">No notes specific to this table.</p>'}</aside></div>`;
     }).join("");
+    const defs = r.report.definitions || [];
+    $("definitions").innerHTML = defs.length ? `<div class="card defs"><h3>Reporting definitions</h3>${defs.map((d) => `${d.heading ? `<h4>${esc(d.heading)}</h4>` : ""}${d.text.split("\n").filter((x) => x.trim()).map((x) => `<p>${esc(x)}</p>`).join("")}`).join("")}</div>` : "";
     document.querySelectorAll("[data-change]").forEach((b) => (b.onclick = () => openChange(b)));
     $("tech").open = false;
     $("tech-body").textContent = "Loading…";
@@ -265,15 +267,18 @@
   $("copy").onclick = async () => {
     const r = state.last; if (!r) return;
     const scope = noteScope(r);
+    const defs = r.report.definitions || [];
     const heading = [r.report.organization, r.report.title, r.report.subtitle].filter(Boolean);
     const noteLine = (n) => { const a = affects(n, r); return `${kindLabel(n.kind)}: ${n.text}${a ? ` [Affects: ${a}]` : ""}`; };
     const htmlHead = heading.map((x, i) => (i ? `<p>${esc(x)}</p>` : `<h2>${esc(x)}</h2>`)).join("") +
       scope.shared.map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("");
     const html = htmlHead + r.tables.map((t) => `<h3>${esc(t.title)}</h3>${t.subtitle ? `<p><i>${esc(t.subtitle)}</i></p>` : ""}${tableHtml(t).replace('class="report"', 'border="1" cellpadding="4" style="border-collapse:collapse"')}${t.note ? `<p><i>${esc(t.note)}</i></p>` : ""}` +
-      r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("")).join("<br>");
+      r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("")).join("<br>") +
+      (defs.length ? `<h3>Reporting definitions</h3>` + defs.map((d) => `${d.heading ? `<h4>${esc(d.heading)}</h4>` : ""}${d.text.split("\n").filter((x) => x.trim()).map((x) => `<p>${esc(x)}</p>`).join("")}`).join("") : "");
     const text = [...heading, ...scope.shared.map(noteLine), ...r.tables.map((t) => [t.title, ...(t.subtitle ? [t.subtitle] : []), [t.row_header, ...t.headers].join("\t"),
       ...t.rows.map((row) => [" ".repeat(row.indent * 2) + row.label, ...(row.kind === "heading" ? [] : row.cells.map(fmt))].join("\t")),
-      ...(t.note ? [t.note] : []), ...r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map(noteLine)].join("\n"))].join("\n\n");
+      ...(t.note ? [t.note] : []), ...r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map(noteLine)].join("\n")),
+      ...(defs.length ? [["Reporting definitions", ...defs.map((d) => [d.heading, d.text].filter(Boolean).join("\n"))].join("\n\n")] : [])].join("\n\n");
     try {
       if (window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })]);
       else await navigator.clipboard.writeText(text);

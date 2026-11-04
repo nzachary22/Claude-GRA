@@ -155,6 +155,16 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
         for n in notes_for(t, notes):
             doc.add_paragraph(_note_line(n), style="List Bullet").runs[0].font.size = Pt(9)
 
+    defs = (report or {}).get("definitions") or []
+    if defs:
+        doc.add_heading("Reporting definitions", level=1)
+        for d in defs:
+            if d.get("heading"):
+                doc.add_heading(d["heading"], level=3)
+            for para in d["text"].split("\n"):
+                if para.strip():
+                    doc.add_paragraph(para.strip())
+
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -249,16 +259,41 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str, rep
             ws.cell(row=i, column=j, value=v).alignment = Alignment(wrap_text=True, vertical="top")
     for col, w in zip("ABCDE", (8, 12, 70, 30, 45)):
         ws.column_dimensions[col].width = w
+
+    defs = (report or {}).get("definitions") or []
+    if defs:
+        ws = wb.create_sheet("Definitions")
+        ws["A1"] = "Reporting definitions"
+        ws["A1"].font = Font(bold=True, size=13)
+        row = 3
+        for d in defs:
+            if d.get("heading"):
+                ws.cell(row=row, column=1, value=d["heading"]).font = Font(bold=True)
+                row += 1
+            ws.cell(row=row, column=1, value=d["text"]).alignment = Alignment(wrap_text=True, vertical="top")
+            row += 2
+        ws.column_dimensions["A"].width = 110
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
 def _sheet_name(title: str, used: set[str]) -> str:
-    base = re.sub(r"[\[\]\*\?/\\:]", " ", title).strip()[:28] or "Table"
+    """An Excel tab name (at most 31 characters) that reads cleanly: "/" becomes "-", cut at a word."""
+    base = re.sub(r"\s*/\s*", "-", title)
+    base = re.sub(r"[\[\]\*\?\\:]", " ", base)
+    base = " ".join(base.split()) or "Table"
+    base = _fit(base, 31)
     name, i = base, 2
-    while name.lower() in used:
-        name = f"{base[:25]} {i}"
+    while name.lower() in used or name.lower() in ("notes", "definitions"):
+        name = f"{_fit(base, 28)} {i}"
         i += 1
     used.add(name.lower())
     return name
+
+
+def _fit(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    cut = text[:limit + 1].rsplit(" ", 1)[0]
+    return (cut if len(cut) >= limit // 2 else text[:limit]).rstrip(" -×x·,")

@@ -95,3 +95,21 @@ def test_excel_export_keeps_numbers_numeric():
     assert wb["Notes"].cell(row=4, column=3).value.startswith("Blank gender")
     assert wb["Notes"].cell(row=4, column=4).value == "Clients by gender"
     assert wb["Notes"].cell(row=5, column=4).value == "All tables"
+
+
+def test_definitions_are_exported_and_tab_names_read_cleanly():
+    tables, notes = sample()
+    tables[0].title = "01 Race / ethnicity by age at intake and county"
+    report = {"organization": "Example Center", "definitions": [
+        {"heading": "What the figures count", "text": "A case counts when it closed in the period.\nEach client counts once."},
+        {"text": "Age is measured on the last day of the period."}]}
+    doc = Document(io.BytesIO(to_docx(tables, notes, "Fallback", "2026", report)))
+    text = [p.text for p in doc.paragraphs]
+    assert "Reporting definitions" in text and "What the figures count" in text
+    assert "Each client counts once." in text and "Age is measured on the last day of the period." in text
+    wb = load_workbook(io.BytesIO(to_xlsx(tables, notes, "Fallback", "2026", report)))
+    assert wb.sheetnames[0] == "01 Race-ethnicity by age at"
+    assert wb.sheetnames[-1] == "Definitions"
+    assert wb["Definitions"]["A3"].value == "What the figures count"
+    assert all(len(n) <= 31 for n in wb.sheetnames)
+    assert "Definitions" not in load_workbook(io.BytesIO(to_xlsx(tables, notes, "Fallback", "2026", {}))).sheetnames
