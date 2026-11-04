@@ -51,3 +51,7 @@ python -m venv %LOCALAPPDATA%\GrantReportingAssistant\venv
 Working files (databases, uploads, exports) are stored in `%LOCALAPPDATA%\GrantReportingAssistant`, outside this repository. Set `GRA_DATA_DIR` to override.
 
 Never commit client data, uploaded files, databases, exports or keys. `.gitignore` excludes them, including the local synthetic test packages.
+
+## License
+
+MIT. See [LICENSE](LICENSE). Provided as is, without warranty or support.
