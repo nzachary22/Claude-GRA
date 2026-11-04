@@ -21,11 +21,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__
+from .activity import read_events, render_text, sent_text
 from .documents import to_blocks
 from .engine import ReportSession
 from .exports import to_docx, to_xlsx
 from .gate import QueryGate
-from .importer import READERS, import_files
+from .importer import READERS, import_files, load_catalog
 from .paths import app_data_dir
 from .schema import describe
 
@@ -64,6 +65,13 @@ def create_app(model_factory=None) -> FastAPI:
     """model_factory() returns a model client; tests pass a scripted one."""
     app = FastAPI(title="Grant Reporting Assistant", version=__version__)
     runs: dict[str, Run] = {}
+
+    @app.middleware("http")
+    async def page_files_stay_current(request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     def default_factory():
         from .llm import ClaudeClient, get_api_key
@@ -185,6 +193,22 @@ def create_app(model_factory=None) -> FastAPI:
             {"id": q.query_id, "purpose": q.purpose, "sql": q.sql, "columns": q.columns, "rows": q.rows[:200],
              "row_count": len(q.rows), "ms": q.elapsed_ms} for q in log]}
 
+    @app.get("/api/runs/{run_id}/activity-log")
+    def activity_log(run_id: str):
+        """Also works after a restart, from the run's saved folder."""
+        if not re.fullmatch(r"[a-f0-9]{12}", run_id):
+            raise HTTPException(404, "Unknown report run.")
+        folder = app_data_dir() / "runs" / run_id
+        events = read_events(folder / "activity.jsonl")
+        if not events:
+            raise HTTPException(404, "No AI activity was recorded for this run.")
+        run = runs.get(run_id)
+        gate = run.session.gate if run and run.session else QueryGate(folder / "data.db", load_catalog(folder / "data.db"))
+        hits = [e["seq"] for e in events if sent_text(e) and gate.contains_protected(sent_text(e))]
+        text = render_text(events, hits, gate.protected_value_count(), run_id)
+        return Response(text, media_type="text/plain; charset=utf-8", headers={
+            "Content-Disposition": f'attachment; filename="ai-activity-log-{run_id}.txt"'})
+
     @app.get("/api/runs/{run_id}/export.{fmt}")
     def export(run_id: str, fmt: str):
         run = get_run(run_id)
@@ -242,7 +266,8 @@ def _work(run: Run, factory):
         gate = QueryGate(db, catalog)
         _event(run, "status", "Connecting to the AI service")
         model = factory()
-        run.session = ReportSession(gate, run.schema_text, blocks, run.period, model)
+        run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,
+                                    activity_path=run.folder / "activity.jsonl")
         run.status = "running"
         if run.cancel_requested:
             run.session.cancel()

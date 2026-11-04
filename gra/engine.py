@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from .activity import ActivityLog, plain
 from .gate import QueryGate, QueryRefused
 from .tables import Table, TableSpecError, resolve_tables
 
@@ -55,6 +56,7 @@ How the data access works:
 - You never see individual records. run_query sends one SQLite SELECT through a privacy gate that only returns aggregate results.
 - The outermost SELECT must aggregate (COUNT, SUM, AVG, TOTAL) and group only by categories or buckets. Inside CTEs and subqueries you may work at record level.
 - Identifier columns (role=identifier) may only be used to join tables, inside COUNT/COUNT(DISTINCT ...), in window PARTITION BY / ORDER BY, in IN (subquery), or with IS NULL. They cannot be output, grouped in the final SELECT, or compared with typed-in values.
+- Where the database description says a column was converted (dollar text to numbers, slash dates to YYYY-MM-DD), the stored values are in the new form. Values inside other text columns, such as a change log, keep their original form.
 - Sensitive columns (role=sensitive, such as birth dates) may be used in calculations (for example age on a date) but only output in bucketed form. Dates, measures and text must be bucketed (strftime, CASE ranges) before they appear in the final output; at most 120 distinct buckets per column and 500 result rows.
 - Free-text columns are withheld and cannot be queried. GROUP_CONCAT and similar list functions are blocked.
 - If a query is refused, the message tells you why; rewrite it. Counts of 0 and 1 are normal results and are never suppressed.
@@ -70,7 +72,7 @@ Reporting rules:
 
 Submitting tables:
 - In submit_tables, every numeric cell is bound to a query result: {"query": "Q3", "match": {"column": "value", ...}, "column": "n"}. The app looks the value up itself. Use "missing_means_zero": true when the query is a count and a missing group genuinely means zero.
-- Use {"gap": "reason"} for unavailable figures and {"text": "..."} only for non-numeric labels. Literal numbers are rejected.
+- Use {"gap": "reason"} for unavailable figures and {"text": "..."} only for non-numeric labels. Use {"text": "—"} where a figure does not apply, as the report does; totals skip text cells, and a total of only such cells shows the same text. Literal numbers are rejected.
 - Subtotal and total rows use "sum_of_rows" (row indexes in the same table); total columns use "sum_of_columns". The app computes these.
 - Set display formats to match the report: "format" of number, percent or currency, plus "decimals", on a column, a row or a single cell (cell wins over row, row over column). Percent values are on a 0-100 scale. If the report shows 31.6% and $2,531,174, use percent with 1 decimal and currency with 0.
 - If the report's table has a header above its row labels (for example "Age at intake"), put it in "row_header".
@@ -171,7 +173,7 @@ class Event:
 
 class ReportSession:
     def __init__(self, gate: QueryGate, schema_text: str, document_blocks: list[dict], period: tuple[str, str],
-                 model: ModelClient, limits: Limits | None = None):
+                 model: ModelClient, limits: Limits | None = None, activity_path=None):
         self.gate = gate
         self.model = model
         self.limits = limits or Limits()
@@ -181,6 +183,10 @@ class ReportSession:
         self.notes: dict[str, Note] = {}
         self.report: dict[str, str] = {}
         self.events: list[Event] = []
+        self.activity = ActivityLog(activity_path)
+        self.activity.add("run_start", "local", period=list(period), model=getattr(model, "model", None))
+        self._logged_messages = 0
+        self._requests = 0
         self.status = "ready"  # ready | running | done | failed | cancelled
         self.error: str | None = None
         self.queries_used = 0
@@ -217,6 +223,18 @@ class ReportSession:
 
     # ------------------------------------------------------------ loop
 
+    def _log_outgoing(self):
+        """Record what is about to be sent. Claude's own earlier replies are logged when received."""
+        if self._requests == 0:
+            self.activity.add("instructions", "sent", text=SYSTEM_PROMPT)
+            self.activity.add("tools", "sent", tools=TOOLS)
+        for m in self.messages[self._logged_messages:]:
+            if m["role"] != "assistant":
+                self.activity.add("message", "sent", role=m["role"], content=[plain(b) for b in m["content"]])
+        self._logged_messages = len(self.messages)
+        self._requests += 1
+        self.activity.add("request", "sent", number=self._requests)
+
     def _emit(self, kind: str, message: str):
         with self._lock:
             self.events.append(Event(time.time(), kind, message))
@@ -244,9 +262,12 @@ class ReportSession:
                 if turns >= self.limits.max_turns or time.monotonic() - start > self.limits.max_seconds:
                     raise RuntimeError("The assistant reached its working limit before finishing the tables.")
                 turns += 1
+                self._log_outgoing()
                 response = self.model.respond(SYSTEM_PROMPT, self.messages, TOOLS, self._cancel.is_set)
                 content = _get(response, "content") or []
                 stop = _get(response, "stop_reason")
+                self.activity.add("response", "received", content=[plain(b) for b in content],
+                                  stop_reason=stop, model=_get(response, "model"))
                 self.messages.append({"role": "assistant", "content": content})
                 if stop == "refusal":
                     raise RuntimeError("The AI service declined this request.")

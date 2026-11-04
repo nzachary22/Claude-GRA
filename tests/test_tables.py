@@ -75,6 +75,30 @@ def test_ambiguous_match_and_unknown_query(results):
     assert any("unknown query" in p for p in e.value.problems)
 
 
+def test_totals_skip_not_applicable_text(results):
+    def dash():
+        return {"text": "—"}
+    s = [{"id": "t", "title": "Wages", "columns": [{"header": "Wages", "format": "currency", "decimals": 2}],
+          "rows": [{"label": "Paid", "kind": "detail", "cells": [cell(gender="woman", age="adult")]},
+                   {"label": "Group A", "kind": "subtotal", "sum_of_rows": [0]},
+                   {"label": "Other", "kind": "detail", "cells": [dash()]},
+                   {"label": "Group B", "kind": "subtotal", "sum_of_rows": [2]},
+                   {"label": "All", "kind": "total", "sum_of_rows": [1, 3]}]}]
+    (t,) = resolve_tables(s, results)
+    shown = [r.cells[0].display for r in t.rows]
+    assert shown == ["$5.00", "$5.00", "—", "—", "$5.00"]
+    assert t.rows[4].cells[0].value == 5 and not t.rows[4].cells[0].gap
+
+
+def test_gaps_still_block_totals_even_beside_text(results):
+    s = [{"id": "t", "title": "Wages", "columns": [{"header": "Wages"}],
+          "rows": [{"label": "A", "kind": "detail", "cells": [{"gap": "Unknown"}]},
+                   {"label": "B", "kind": "detail", "cells": [{"text": "—"}]},
+                   {"label": "All", "kind": "total", "sum_of_rows": [0, 1]}]}]
+    (t,) = resolve_tables(s, results)
+    assert t.rows[2].cells[0].gap
+
+
 def test_formats_cell_beats_row_beats_column(results):
     s = spec()
     s[0]["columns"][0].update(format="percent", decimals=1)

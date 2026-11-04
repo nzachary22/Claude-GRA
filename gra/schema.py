@@ -32,6 +32,8 @@ def describe(db_path: Path, catalog: Catalog) -> str:
                 desc = f"  - {c.name} {c.sql_type} role={c.role} distinct={c.distinct} blank={c.nulls}"
                 if c.source_name != c.name:
                     desc += f' (header "{c.source_name}")'
+                if c.note:
+                    desc += f"; {c.note}"
                 if c.role == "category" and not t.reference and c.distinct <= MAX_CODES:
                     values = [v for (v,) in conn.execute(
                         f'SELECT DISTINCT "{c.name}" FROM "{t.name}" WHERE "{c.name}" IS NOT NULL ORDER BY 1')]

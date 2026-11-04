@@ -23,13 +23,16 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field, asdict
+from datetime import datetime
 from pathlib import Path
 
 CATEGORY_MAX_DISTINCT = 100
 REFERENCE_MAX_ROWS = 300
 FREE_TEXT_MIN_AVG_LEN = 40
 
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$")
+_SLASH_DATE_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+_MONEY_RE = re.compile(r"^-?\$\s?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$")
 _INT_RE = re.compile(r"^-?(0|[1-9]\d*)$")
 _REAL_RE = re.compile(r"^-?(0|[1-9]\d*)\.\d+$")
 
@@ -44,6 +47,7 @@ _PERSON_NAME = re.compile(
 _NAME_COL = re.compile(r"(^|_)name$")
 _SENSITIVE_NAME = re.compile(r"(^|_)(dob|birth|birthdate|date_of_birth|born)(_|$)")
 _FREE_TEXT_NAME = re.compile(r"(^|_)(note|notes|narrative|comment|comments|description|memo|summary|details)(_|$)")
+_CODE_TABLE_HINT = re.compile(r"(^|_)(code|codes|reference|lookup|crosswalk|definitions?|dictionary)(_|$)")
 _PERSON_TABLE_HINT = re.compile(r"(client|person|people|individual|member|participant|applicant|customer|patient)")
 
 
@@ -55,6 +59,7 @@ class ColumnInfo:
     role: str
     distinct: int
     nulls: int
+    note: str = ""  # how the app standardized the column's values, if it did
 
 
 @dataclass
@@ -190,6 +195,28 @@ def _clean(v):
     return v
 
 
+def _normalize(values: list) -> tuple[list, str]:
+    """Standardize whole columns of dollar text or slash dates so they can be calculated on."""
+    present = [v for v in values if isinstance(v, str)]
+    if not present or len(present) != sum(v is not None for v in values):
+        return values, ""
+    if all(_MONEY_RE.match(v) for v in present):
+        convert = lambda v: float(v.replace("$", "").replace(",", "").replace(" ", ""))
+        return [None if v is None else convert(v) for v in values], "converted from dollar text such as $1,250.00"
+    matches = [_SLASH_DATE_RE.match(v) for v in present]
+    if all(matches):
+        day_first = any(int(m[1]) > 12 for m in matches)
+        if day_first and any(int(m[2]) > 12 for m in matches):
+            return values, ""
+        fmt, label = ("%d/%m/%Y", "DD/MM/YYYY") if day_first else ("%m/%d/%Y", "MM/DD/YYYY")
+        try:
+            out = [None if v is None else datetime.strptime(v, fmt).strftime("%Y-%m-%d") for v in values]
+        except ValueError:
+            return values, ""
+        return out, f"converted from {label} to YYYY-MM-DD"
+    return values, ""
+
+
 def _infer(values: list) -> str:
     present = [v for v in values if v is not None]
     if not present:
@@ -247,9 +274,11 @@ def _classify(col: str, table: str, sql_type: str, values: list, rows: int) -> s
 def _is_reference(table: TableInfo) -> bool:
     if table.rows > REFERENCE_MAX_ROWS or _PERSON_TABLE_HINT.search(table.name):
         return False
+    # A notes column in a table named as a code list explains the codes; elsewhere it stays withheld.
+    code_list = bool(_CODE_TABLE_HINT.search(table.name))
     return not any(
-        _PERSON_NAME.search(c.name) or _SENSITIVE_NAME.search(c.name) or c.role == "free_text"
-        or _PERSON_TABLE_HINT.search(c.name)
+        _PERSON_NAME.search(c.name) or _SENSITIVE_NAME.search(c.name)
+        or (c.role == "free_text" and not code_list) or _PERSON_TABLE_HINT.search(c.name)
         for c in table.columns
     )
 
@@ -289,19 +318,21 @@ def _load_table(conn, raw_name, headers, rows, source_file, taken) -> TableInfo:
     info = TableInfo(name=tname, source_file=source_file, rows=len(data))
     types = []
     for i, cname in enumerate(cols):
-        values = [r[i] for r in data]
+        values, note = _normalize([r[i] for r in data])
+        for r, v in zip(data, values):
+            r[i] = v
         sql_type = _infer(values)
         types.append(sql_type)
         present = [v for v in values if v is not None]
         info.columns.append(ColumnInfo(
             name=cname, source_name=str(headers[i]), sql_type=sql_type,
             role=_classify(cname, tname, sql_type, values, len(data)),
-            distinct=len(set(present)), nulls=len(values) - len(present),
+            distinct=len(set(present)), nulls=len(values) - len(present), note=note,
         ))
     info.reference = _is_reference(info)
     if info.reference:
-        for c in info.columns:  # code tables: their codes are definitions, not identifiers
-            if c.role == "identifier":
+        for c in info.columns:  # code tables: their entries are definitions, not client data
+            if c.role in ("identifier", "free_text"):
                 c.role = "category"
 
     col_sql = ", ".join(f'"{c}" {t}' for c, t in zip(cols, types))

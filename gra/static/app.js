@@ -119,6 +119,8 @@
       $("bar").style.display = "none";
       $("now").textContent = r.status === "failed" ? `Stopped: ${r.error || "the report could not be prepared."}` : "Cancelled.";
       if (r.tables.length) { const b = document.createElement("button"); b.className = "secondary"; b.textContent = "Review last draft"; b.onclick = () => renderReview(r); $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(b); }
+      const log = document.createElement("a"); log.href = `/api/runs/${state.runId}/activity-log`; log.textContent = "AI activity log";
+      $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(log);
       const back = document.createElement("button"); back.className = "link"; back.textContent = "Back to upload";
       back.onclick = () => { show("upload"); $("start").disabled = false; };
       $("now").appendChild(back);
@@ -140,6 +142,7 @@
     $("review-sub").textContent = (reportLine ? `${reportLine} · ` : "") + `Draft · Reporting period ${r.period[0]} to ${r.period[1]} · ${r.tables.length} table(s) · ${r.notes.length} note(s)` + (gaps ? ` · ${gaps} unavailable figure(s)` : "");
     $("dl-word").href = `/api/runs/${r.id}/export.docx`;
     $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
+    $("dl-log").href = `/api/runs/${r.id}/activity-log`;
     const scope = noteScope(r);
     $("general-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
     $("tables").innerHTML = r.tables.map((t) => {

@@ -58,6 +58,7 @@ _SAFE_SQLITE_ERRORS = re.compile(
     re.I,
 )
 
+_TOKEN = re.compile(r"[A-Za-z0-9_@.+#/:\-]+")
 OUTPUT_FORBIDDEN = {"identifier", "free_text"}
 NEEDS_BUCKET = {"date", "measure", "text", "sensitive"}
 
@@ -403,6 +404,17 @@ class QueryGate:
             for v in r:
                 if isinstance(v, str) and v in self._protected_values:
                     raise QueryRefused("The result would reveal individual identifier or note values.")
+
+    def protected_value_count(self) -> int:
+        return len(self._protected_values)
+
+    def contains_protected(self, text: str) -> bool:
+        """Whether text contains a stored identifier or note value."""
+        tokens = set(_TOKEN.findall(text))
+        for value in self._protected_values:
+            if (value in tokens) if _TOKEN.fullmatch(value) else (value in text):
+                return True
+        return False
 
     def _load_protected_values(self) -> set[str]:
         values: set[str] = set()

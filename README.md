@@ -26,6 +26,10 @@ Double-click `start.bat`. The first run sets up a private Python environment (Py
 | `gra/tables.py` | Fills every number from a local query result and computes totals; the AI cannot type a figure in. |
 | `gra/engine.py` | Runs the bounded AI loop (query, turn and time limits, cancel, corrections). |
 
+## What leaves the computer
+
+**AI activity log** beside the downloads saves a readable record of every message sent to and received from Claude for a run, including failed and cancelled runs. It is written as each request goes out, stays with the run in the local data folder, and reports a check of the sent text against stored identifiers and notes. Uploaded PDFs and images are listed by name, size and fingerprint. The app keeps the five most recent runs, including their uploads and databases, and deletes older ones.
+
 ## Development
 
 The repository may sit in a cloud-synced folder, so keep the virtual environment outside it:

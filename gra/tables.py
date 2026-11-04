@@ -302,8 +302,15 @@ def _sum(cells: list[Cell], source: str) -> Cell:
     if gaps:
         return Cell(gap="Includes unavailable figures", source=source)
     nums = [c.value for c in cells if c.is_number]
-    if len(nums) != len(cells):
-        return Cell(gap="Cannot total non-numeric cells", source=source)
+    # Text such as "—" means not applicable: it adds nothing, and if nothing else
+    # is there the total reads the same way.
+    texts = [c.value for c in cells if isinstance(c.value, str)]
+    if len(nums) + len(texts) != len(cells):
+        return Cell(gap="Cannot total blank cells", source=source)
+    if texts and not nums:
+        if len(set(texts)) > 1:
+            return Cell(gap="Cannot total non-numeric cells", source=source)
+        return Cell(value=texts[0], source=source)
     total = sum(nums)
     if isinstance(total, float) and total.is_integer():
         total = int(total)
