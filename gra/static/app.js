@@ -99,9 +99,9 @@
     const records = p.files.reduce((n, f) => n + f.rows, 0);
     const kept = `<div class="pv-box pv-kept"><h4>Stays on this computer</h4><p>Claude never sees these values.</p>
       ${chips(p.kept, (c) => ` <span class="why">${esc(c.why)}</span>`)}</div>`;
-    const listed = `<div class="pv-box pv-check"><h4>Check these: Claude sees every value</h4><p>Make sure no list contains a name, ID or address.</p>
-      ${p.listed.length ? `<ul class="lists">${p.listed.map((c) => `<li><b>${esc(c.header)}</b>${where(c)}<span class="vals">${c.examples.map(esc).join(", ")}${c.count > c.examples.length ? `, and ${c.count - c.examples.length} more` : ""}</span></li>`).join("")}</ul>` : `<p class="muted">None.</p>`}
-      ${p.code_lists.length ? `<p class="code-lists">Code lists shared in full: ${p.code_lists.map((c) => `<b>${esc(c.file)}</b> (${c.rows} rows: ${c.columns.map(esc).join(", ")})`).join("; ")}</p>` : ""}</div>`;
+    const listed = `<div class="pv-box pv-check"><h4>Check these: Claude sees the possible answers</h4><p>Only a summary of the different answers found in each column, never the full column or which client gave which answer. Make sure no list contains a name, ID or address.</p>
+      ${p.listed.length ? `<ul class="lists">${p.listed.map((c) => `<li><b>${esc(c.header)}</b>${where(c)}<span class="vals"><span class="why">${c.count} possible answer${c.count === 1 ? "" : "s"}:</span> ${c.examples.map(esc).join(", ")}${c.count > c.examples.length ? `, and ${c.count - c.examples.length} more` : ""}</span></li>`).join("")}</ul>` : `<p class="muted">None.</p>`}
+      ${p.code_lists.length ? `<p class="code-lists">Code lists shared in full (they define codes and hold no client records): ${p.code_lists.map((c) => `<b>${esc(c.file)}</b> (${c.rows} rows: ${c.columns.map(esc).join(", ")})`).join("; ")}</p>` : ""}</div>`;
     const totals = `<div class="pv-box pv-totals"><h4>Totals only</h4><p>Claude can count, add up or group these, but never sees a single record's value.</p>${chips(p.totals)}</div>`;
     return `<p class="pv-head"><b>Nothing has been sent.</b> This is what Claude would get from ${p.files.length} file(s), ${records.toLocaleString()} records.</p>
       <div class="pv-grid">${kept}${listed}${totals}</div>
