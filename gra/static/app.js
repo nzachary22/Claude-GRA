@@ -89,9 +89,24 @@
     } catch (err) { msg("upload-msg", err.message, "err"); $("start").disabled = false; }
   };
 
-  // Shows the data description the AI would get, built on this computer; nothing is sent.
-  const ROLE_LABEL = { identifier: "Protected: ID or name", sensitive: "Protected: personal (bucketed only)", free_text: "Withheld: notes",
-    category: "Shared: list of values", date: "Shared: date range", measure: "Totals only", text: "Totals only (values not listed)" };
+  // Shows, on this computer, what the AI would get from the data files; nothing is sent.
+  function previewHtml(p) {
+    const many = p.files.length > 1;
+    const where = (c) => (many ? ` <span class="from">${esc(c.file)}</span>` : "");
+    const chips = (items, extra = () => "") => items.length
+      ? `<ul class="chips">${items.map((c) => `<li><b>${esc(c.header)}</b>${extra(c)}${where(c)}</li>`).join("")}</ul>`
+      : `<p class="muted">None.</p>`;
+    const records = p.files.reduce((n, f) => n + f.rows, 0);
+    const kept = `<div class="pv-box pv-kept"><h4>Stays on this computer</h4><p>Claude never sees these values.</p>
+      ${chips(p.kept, (c) => ` <span class="why">${esc(c.why)}</span>`)}</div>`;
+    const listed = `<div class="pv-box pv-check"><h4>Check these: Claude sees every value</h4><p>Make sure no list contains a name, ID or address.</p>
+      ${p.listed.length ? `<ul class="lists">${p.listed.map((c) => `<li><b>${esc(c.header)}</b>${where(c)}<span class="vals">${c.examples.map(esc).join(", ")}${c.count > c.examples.length ? `, and ${c.count - c.examples.length} more` : ""}</span></li>`).join("")}</ul>` : `<p class="muted">None.</p>`}
+      ${p.code_lists.length ? `<p class="code-lists">Code lists shared in full: ${p.code_lists.map((c) => `<b>${esc(c.file)}</b> (${c.rows} rows: ${c.columns.map(esc).join(", ")})`).join("; ")}</p>` : ""}</div>`;
+    const totals = `<div class="pv-box pv-totals"><h4>Totals only</h4><p>Claude can count, add up or group these, but never sees a single record's value.</p>${chips(p.totals)}</div>`;
+    return `<p class="pv-head"><b>Nothing has been sent.</b> This is what Claude would get from ${p.files.length} file(s), ${records.toLocaleString()} records.</p>
+      <div class="pv-grid">${kept}${listed}${totals}</div>
+      <details><summary>Exact text Claude would receive about the data</summary><pre>${esc(p.schema)}</pre></details>`;
+  }
   $("preview").onclick = async () => {
     $("preview").disabled = true;
     msg("upload-msg", "Reading your data files on this computer…");
@@ -99,10 +114,8 @@
     state.dataFiles.forEach((f) => form.append("data_files", f));
     try {
       const p = await api("/api/preview", { method: "POST", body: form });
-      msg("upload-msg", "Nothing was sent. Check that no client name, ID or address shows as Shared.", "ok");
-      $("preview-body").innerHTML = p.tables.map((t) => `<h4>${esc(t.file)}: ${t.rows.toLocaleString()} rows${t.code_list ? " (code list: its full contents are shared)" : ""}</h4>
-        <table><tr><th>Column</th><th>How the AI may use it</th></tr>${t.columns.map((c) => `<tr><td>${esc(c.header)}</td><td class="${["identifier", "sensitive", "free_text"].includes(c.role) ? "protected" : ""}">${esc(t.code_list && c.role === "category" ? "Shared: full contents" : ROLE_LABEL[c.role] || c.role)}</td></tr>`).join("")}</table>`).join("") +
-        `<details><summary>Exact text the AI would receive about the data</summary><pre>${esc(p.schema)}</pre></details>`;
+      msg("upload-msg", "");
+      $("preview-body").innerHTML = previewHtml(p);
       $("preview-body").hidden = false;
     } catch (err) { msg("upload-msg", err.message, "err"); }
     $("preview").disabled = !state.dataFiles.length;

@@ -107,9 +107,13 @@ def test_preview_shows_roles_and_sends_nothing(tmp_path, monkeypatch, tiny_files
     res = c.post("/api/preview", files=files)
     assert res.status_code == 200, res.text
     body = res.json()
-    clients = next(t for t in body["tables"] if t["table"] == "clients")
-    assert {c["header"]: c["role"] for c in clients["columns"]}["Last Name"] == "identifier"
-    assert "Stone" not in body["schema"]
+    kept = {c["header"] for c in body["kept"]}
+    assert {"Client ID", "First Name", "Last Name", "Date of Birth", "Intake Notes"} <= kept
+    gender = next(c for c in body["listed"] if c["header"] == "Gender")
+    assert gender["count"] == 3 and "woman" in gender["examples"]
+    assert {"opened", "minutes"} <= {c["header"] for c in body["totals"]}
+    assert [c["file"] for c in body["code_lists"]] == ["problem_codes.csv"]
+    assert "Stone" not in body["schema"] and "Stone" not in res.text
     assert not any((tmp_path / "appdata" / "preview").iterdir())  # nothing kept
 
 

@@ -238,10 +238,7 @@ def create_app(model_factory=None) -> FastAPI:
                 names.append(name)
             db = folder / "data.db"
             catalog = import_files(db, [folder / n for n in names])
-            return {"schema": describe(db, catalog), "tables": [
-                {"table": t.name, "file": t.source_file, "rows": t.rows, "code_list": t.reference,
-                 "columns": [{"header": c.source_name, "role": c.role} for c in t.columns]}
-                for t in catalog.tables]}
+            return {"schema": describe(db, catalog), **_preview_groups(db, catalog)}
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         finally:
@@ -375,6 +372,40 @@ def _check_reports(run: Run, gate: QueryGate):
                                    f"({', '.join(found[:5])}). Check that the report names no clients.")
     if run.report_names:
         _event(run, "status", "Checked the report for client names and IDs from your data; none found")
+
+
+_KEPT_WHY = {"identifier": "ID or name", "sensitive": "personal; used only for groups such as age bands",
+             "free_text": "notes"}
+
+
+def _preview_groups(db: Path, catalog) -> dict:
+    """The preview in four plain groups: kept here, values listed, totals only, code lists shared in full."""
+    import sqlite3
+
+    from .schema import MAX_CODES
+
+    kept, listed, totals, code_lists = [], [], [], []
+    conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    try:
+        for t in catalog.tables:
+            if t.reference:
+                code_lists.append({"file": t.source_file, "rows": t.rows,
+                                   "columns": [c.source_name for c in t.columns]})
+                continue
+            for c in t.columns:
+                item = {"header": c.source_name, "file": t.source_file}
+                if c.role in _KEPT_WHY:
+                    kept.append({**item, "why": _KEPT_WHY[c.role]})
+                elif c.role == "category" and c.distinct <= MAX_CODES:
+                    values = [str(v) for (v,) in conn.execute(
+                        f'SELECT DISTINCT "{c.name}" FROM "{t.name}" WHERE "{c.name}" IS NOT NULL ORDER BY 1 LIMIT 6')]
+                    listed.append({**item, "count": c.distinct, "examples": values})
+                else:
+                    totals.append(item)
+    finally:
+        conn.close()
+    return {"files": [{"file": t.source_file, "rows": t.rows} for t in catalog.tables],
+            "kept": kept, "listed": listed, "totals": totals, "code_lists": code_lists}
 
 
 def _remove(folder: Path):
