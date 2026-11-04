@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grant Reporting Assistant</title>
+  <link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.0</span></div>
+    <nav class="steps" aria-label="Progress">
+      <span data-step="upload" class="active">1 Upload</span>
+      <span data-step="prepare">2 Prepare</span>
+      <span data-step="review">3 Review</span>
+    </nav>
+    <button id="settings-btn" class="link">Settings</button>
+  </header>
+
+  <main>
+    <!-- One-time setup -->
+    <section id="setup" class="card" hidden>
+      <h2>One-time setup</h2>
+      <p>The assistant uses Claude to read your report and plan the calculations. Paste your Anthropic API key once; it is stored in Windows Credential Manager on this computer.</p>
+      <p class="muted">Client records never leave this computer. Claude only receives your report, a description of the data columns and totals calculated here.</p>
+      <form id="key-form" class="row">
+        <input id="key-input" type="password" autocomplete="off" placeholder="sk-ant-..." aria-label="API key" required>
+        <button type="submit" class="primary">Save key</button>
+      </form>
+      <p id="key-msg" class="msg" role="status"></p>
+    </section>
+
+    <!-- 1 Upload -->
+    <section id="upload" class="card">
+      <h2>Upload</h2>
+      <div class="grid2">
+        <label class="drop" id="drop-report">
+          <input type="file" id="report-files" multiple accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg">
+          <strong>Last report or grant requirements</strong>
+          <span class="muted">PDF, Word, Excel, text or image</span>
+          <ul class="files" id="report-list"></ul>
+        </label>
+        <label class="drop" id="drop-data">
+          <input type="file" id="data-files" multiple accept=".csv,.xlsx,.xlsm,.json,.tsv,.txt">
+          <strong>Current client and case data</strong>
+          <span class="muted">CSV, Excel or JSON exports</span>
+          <ul class="files" id="data-list"></ul>
+        </label>
+      </div>
+      <div class="period">
+        <span>Reporting period</span>
+        <input type="date" id="period-start" aria-label="Period start" required>
+        <span>to</span>
+        <input type="date" id="period-end" aria-label="Period end" required>
+      </div>
+      <div class="actions">
+        <button id="start" class="primary" disabled>Prepare report</button>
+        <span id="upload-msg" class="msg" role="status"></span>
+      </div>
+    </section>
+
+    <!-- 2 Prepare -->
+    <section id="prepare" class="card" hidden>
+      <div class="head">
+        <h2>Preparing your tables</h2>
+        <button id="cancel" class="secondary">Cancel</button>
+      </div>
+      <div class="progress"><div class="bar" id="bar"></div></div>
+      <p id="now" class="now"></p>
+      <ol id="events" class="events"></ol>
+    </section>
+
+    <!-- 3 Review -->
+    <section id="review" hidden>
+      <div class="toolbar card">
+        <div>
+          <h2 id="review-title">Draft tables</h2>
+          <p class="muted" id="review-sub"></p>
+        </div>
+        <div class="tools">
+          <button id="copy" class="secondary">Copy all tables</button>
+          <a id="dl-word" class="button secondary" href="#">Download Word</a>
+          <a id="dl-excel" class="button secondary" href="#">Download Excel</a>
+          <a id="dl-log" class="button secondary" href="#" title="A short report of what stayed on this computer and what was sent to the AI">AI activity report</a>
+          <button id="new-report" class="link">New report</button>
+        </div>
+      </div>
+      <p id="review-msg" class="msg" role="status"></p>
+      <div id="general-notes"></div>
+      <div id="tables"></div>
+      <div class="card">
+        <h3>Request a correction</h3>
+        <p class="muted">Describe what should change in plain words, for example "count clients by county of residence, not office". Affected figures are recalculated.</p>
+        <form id="correct-form">
+          <textarea id="correct-text" rows="3" required></textarea>
+          <button type="submit" class="primary">Recalculate</button>
+        </form>
+      </div>
+      <details class="card tech" id="tech">
+        <summary>Technical details</summary>
+        <div id="tech-body" class="muted">Loading…</div>
+      </details>
+    </section>
+  </main>
+  <script src="/static/app.js?v=3"></script>
+</body>
+</html>
