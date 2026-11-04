@@ -62,6 +62,7 @@
       state[key] = [...state[key], ...files].filter((f, i, a) => a.findIndex((g) => g.name === f.name && g.size === f.size) === i);
       $(listId).innerHTML = state[key].map((f) => `<li>${esc(f.name)}</li>`).join("");
       $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
+      $("preview").disabled = !state.dataFiles.length;
     };
     input.onchange = () => { set([...input.files]); input.value = ""; };
     zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("over"); };
@@ -86,6 +87,38 @@
       msg("upload-msg", "");
       startPolling(id);
     } catch (err) { msg("upload-msg", err.message, "err"); $("start").disabled = false; }
+  };
+
+  // Shows, on this computer, what the AI would get from the data files; nothing is sent.
+  function previewHtml(p) {
+    const many = p.files.length > 1;
+    const where = (c) => (many ? ` <span class="from">${esc(c.file)}</span>` : "");
+    const chips = (items, extra = () => "") => items.length
+      ? `<ul class="chips">${items.map((c) => `<li><b>${esc(c.header)}</b>${extra(c)}${where(c)}</li>`).join("")}</ul>`
+      : `<p class="muted">None.</p>`;
+    const records = p.files.reduce((n, f) => n + f.rows, 0);
+    const kept = `<div class="pv-box pv-kept"><h4>Stays on this computer</h4><p>Claude never sees these values.</p>
+      ${chips(p.kept, (c) => ` <span class="why">${esc(c.why)}</span>`)}</div>`;
+    const listed = `<div class="pv-box pv-check"><h4>Check these: Claude sees the possible answers</h4><p>Only a summary of the different answers found in each column, never the full column or which client gave which answer. Make sure no list contains a name, ID or address.</p>
+      ${p.listed.length ? `<ul class="lists">${p.listed.map((c) => `<li><b>${esc(c.header)}</b>${where(c)}<span class="vals"><span class="why">${c.count} possible answer${c.count === 1 ? "" : "s"}:</span> ${c.examples.map(esc).join(", ")}${c.count > c.examples.length ? `, and ${c.count - c.examples.length} more` : ""}</span></li>`).join("")}</ul>` : `<p class="muted">None.</p>`}
+      ${p.code_lists.length ? `<p class="code-lists">Code lists shared in full (they define codes and hold no client records): ${p.code_lists.map((c) => `<b>${esc(c.file)}</b> (${c.rows} rows: ${c.columns.map(esc).join(", ")})`).join("; ")}</p>` : ""}</div>`;
+    const totals = `<div class="pv-box pv-totals"><h4>Totals only</h4><p>Claude can count, add up or group these, but never sees a single record's value.</p>${chips(p.totals)}</div>`;
+    return `<p class="pv-head"><b>Nothing has been sent.</b> This is what Claude would get from ${p.files.length} file(s), ${records.toLocaleString()} records.</p>
+      <div class="pv-grid">${kept}${listed}${totals}</div>
+      <details><summary>Exact text Claude would receive about the data</summary><pre>${esc(p.schema)}</pre></details>`;
+  }
+  $("preview").onclick = async () => {
+    $("preview").disabled = true;
+    msg("upload-msg", "Reading your data files on this computer…");
+    const form = new FormData();
+    state.dataFiles.forEach((f) => form.append("data_files", f));
+    try {
+      const p = await api("/api/preview", { method: "POST", body: form });
+      msg("upload-msg", "");
+      $("preview-body").innerHTML = previewHtml(p);
+      $("preview-body").hidden = false;
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+    $("preview").disabled = !state.dataFiles.length;
   };
 
   // ------------------------------------------------------------ prepare
@@ -195,6 +228,23 @@
     state.timer = setInterval(poll, 1000);
   }
   $("correct-form").onsubmit = (e) => { e.preventDefault(); submitCorrection($("correct-text").value); };
+  $("delete-run").onclick = async () => {
+    if (!state.runId || !confirm("Delete this run's uploads, database and AI record from this computer? Download the tables and AI activity report first if you need them.")) return;
+    try {
+      await api(`/api/runs/${state.runId}`, { method: "DELETE" });
+      state.runId = null; state.last = null;
+      history.replaceState(null, "", location.pathname);
+      show("upload");
+      msg("upload-msg", "That run's files were deleted from this computer.", "ok");
+    } catch (err) { msg("review-msg", err.message, "err"); }
+  };
+  $("delete-all").onclick = async () => {
+    if (!confirm("Delete the files of every saved report run from this computer?")) return;
+    try {
+      const r = await api("/api/runs", { method: "DELETE" });
+      msg("delete-all-msg", `Deleted ${r.deleted} saved run(s).`, "ok");
+    } catch (err) { msg("delete-all-msg", err.message, "err"); }
+  };
   $("new-report").onclick = () => { history.replaceState(null, "", location.pathname); show("upload"); $("start").disabled = !(state.reportFiles.length && state.dataFiles.length); };
 
   $("copy").onclick = async () => {

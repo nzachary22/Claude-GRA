@@ -26,6 +26,14 @@ Double-click `start.bat`. The first run sets up a private Python environment (Py
 | `gra/tables.py` | Fills every number from a local query result and computes totals; the AI cannot type a figure in. |
 | `gra/engine.py` | Runs the bounded AI loop (query, turn and time limits, cancel, corrections). |
 
+## Before using real client data
+
+- **Preview what the AI will see** (upload screen) imports the exports on this computer and shows how each column will be treated and the exact data description Claude would receive. Nothing is sent. Check that no name, ID or address shows as Shared.
+- Uploaded reports are sent to the AI in full. Before sending, the app checks their text for names, IDs and notes from the uploaded data and stops if it finds a full name or ID. Images and scanned PDFs cannot be checked.
+- Corrections that mention a stored name, ID or note are refused.
+- **Delete this run's files** (review screen) and **Delete all saved runs** (Settings) remove uploads, databases and AI records from this computer.
+- Keep real exports outside the repository and any cloud-synced folder.
+
 ## What leaves the computer
 
 **AI activity report** beside the downloads is a short Word document for a run, including failed and cancelled runs: what stayed on this computer, what was sent, and a table of each information packet to scan. Response summaries come from the data actually sent, and the sent text is checked against stored identifiers and notes. Technical details offers the full word-for-word record, written as each request goes out, in which uploaded PDFs and images are listed by name, size and fingerprint. The app keeps the five most recent runs, including their uploads and databases, and deletes older ones.

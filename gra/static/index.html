@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <link rel="stylesheet" href="/static/style.css?v=5">
 </head>
 <body>
   <header class="top">
@@ -28,6 +28,10 @@
         <button type="submit" class="primary">Save key</button>
       </form>
       <p id="key-msg" class="msg" role="status"></p>
+      <h3>Saved report files</h3>
+      <p class="muted">The app keeps the uploads, database and AI record of the five most recent runs on this computer, then deletes older ones.</p>
+      <button id="delete-all" class="secondary">Delete all saved runs</button>
+      <p id="delete-all-msg" class="msg" role="status"></p>
     </section>
 
     <!-- 1 Upload -->
@@ -38,12 +42,13 @@
           <input type="file" id="report-files" multiple accept=".pdf,.docx,.xlsx,.xlsm,.txt,.md,.csv,.png,.jpg,.jpeg">
           <strong>Last report or grant requirements</strong>
           <span class="muted">PDF, Word, Excel, text or image</span>
+          <span class="muted warn-line">Sent to the AI in full. Remove any client names or stories first.</span>
           <ul class="files" id="report-list"></ul>
         </label>
         <label class="drop" id="drop-data">
           <input type="file" id="data-files" multiple accept=".csv,.xlsx,.xlsm,.json,.tsv,.txt">
           <strong>Current client and case data</strong>
-          <span class="muted">CSV, Excel or JSON exports</span>
+          <span class="muted">CSV, Excel or JSON exports. These stay on this computer.</span>
           <ul class="files" id="data-list"></ul>
         </label>
       </div>
@@ -55,8 +60,10 @@
       </div>
       <div class="actions">
         <button id="start" class="primary" disabled>Prepare report</button>
+        <button id="preview" class="secondary" disabled title="Nothing is sent to the AI">Preview what the AI will see</button>
         <span id="upload-msg" class="msg" role="status"></span>
       </div>
+      <div id="preview-body" class="preview" hidden></div>
     </section>
 
     <!-- 2 Prepare -->
@@ -82,6 +89,7 @@
           <a id="dl-word" class="button secondary" href="#">Download Word</a>
           <a id="dl-excel" class="button secondary" href="#">Download Excel</a>
           <a id="dl-log" class="button secondary" href="#" title="A short report of what stayed on this computer and what was sent to the AI">AI activity report</a>
+          <button id="delete-run" class="link" title="Removes this run's uploads, database and AI record from this computer. Download what you need first.">Delete this run's files</button>
           <button id="new-report" class="link">New report</button>
         </div>
       </div>
@@ -102,6 +110,6 @@
       </details>
     </section>
   </main>
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>

@@ -29,6 +29,23 @@ def to_blocks(path: Path) -> list[dict]:
     return [header, {"type": "text", "text": extract_text(path)[:MAX_TEXT_CHARS]}]
 
 
+def scan_text(path: Path) -> str | None:
+    """Readable text of an uploaded document, for checking it before it is sent; None if unreadable (images)."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix in IMAGE_TYPES:
+        return None
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+
+            text = "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+        except Exception:
+            return None
+        return text if len(text.strip()) >= 200 else None  # a scanned PDF has no readable text
+    return extract_text(path)
+
+
 def extract_text(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".docx":
