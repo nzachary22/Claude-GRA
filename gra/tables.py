@@ -2,7 +2,9 @@
 
 A table spec (from the AI's submit_tables call) looks like:
 
-    {"id": "t1", "title": "Table 1 ...", "note": "optional caption",
+    {"id": "t1", "title": "Table 1 ...", "subtitle": "Clients: {clients}", "note": "optional caption",
+     "values": {"clients": {"query": "Q1", "column": "n"}},
+     "row_header": "Age at intake",
      "columns": [{"header": "Under 18"}, ..., {"header": "Total", "sum_of_columns": [0, 1, 2, 3]}],
      "rows": [
         {"label": "Consumer & finance", "kind": "heading"},
@@ -15,13 +17,22 @@ A table spec (from the AI's submit_tables call) looks like:
 Cell forms: a query binding (above); {"gap": "why the figure is unavailable"};
 {"text": "..."} for non-numeric labels; or null where a column or row sum fills it.
 Literal numbers are rejected so that no figure can bypass the local data.
+
+Display: a cell, row or column may set "format" (number, percent or currency)
+and "decimals"; the most specific wins. Percent values are on a 0-100 scale.
+A figure inside a subtitle or note is a {placeholder} bound through "values".
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
+FORMATS = {"number", "percent", "currency"}
+DEFAULT_DECIMALS = {"number": 0, "percent": 1, "currency": 0}
+_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_]+)\}")
 ROW_KINDS = {"heading", "detail", "subtotal", "total"}
+GAP_MARK = "n/a"
 
 
 class TableSpecError(Exception):
@@ -35,10 +46,29 @@ class Cell:
     value: float | int | str | None = None
     gap: str | None = None  # reason the value is unavailable
     source: str | None = None  # e.g. "Q4" or "sum of rows 1-3"
+    format: str | None = None  # number | percent | currency; None means plain
+    decimals: int | None = None
 
     @property
     def is_number(self) -> bool:
         return isinstance(self.value, (int, float)) and not isinstance(self.value, bool) and self.gap is None
+
+    @property
+    def display(self) -> str:
+        """The cell as shown everywhere: on screen, in Copy, in Word."""
+        if self.gap:
+            return GAP_MARK
+        if self.value is None:
+            return ""
+        if not self.is_number:
+            return str(self.value)
+        if self.format in FORMATS:
+            d = DEFAULT_DECIMALS[self.format] if self.decimals is None else self.decimals
+            text = f"{self.value:,.{d}f}"
+            return {"percent": f"{text}%", "currency": f"${text}".replace("$-", "-$")}.get(self.format, text)
+        if isinstance(self.value, int):
+            return f"{self.value:,}"
+        return f"{self.value:,.2f}".rstrip("0").rstrip(".")
 
 
 @dataclass
@@ -57,13 +87,16 @@ class Table:
     headers: list[str]
     rows: list[Row]
     warnings: list[str] = field(default_factory=list)
+    row_header: str = ""
+    subtitle: str = ""
 
     def to_dict(self) -> dict:
         return {
-            "id": self.id, "title": self.title, "note": self.note, "headers": self.headers,
-            "warnings": self.warnings,
+            "id": self.id, "title": self.title, "subtitle": self.subtitle, "note": self.note,
+            "row_header": self.row_header, "headers": self.headers, "warnings": self.warnings,
             "rows": [{"label": r.label, "kind": r.kind, "indent": r.indent,
-                      "cells": [{"value": c.value, "gap": c.gap, "source": c.source} for c in r.cells]}
+                      "cells": [{"value": c.value, "gap": c.gap, "source": c.source, "format": c.format,
+                                 "decimals": c.decimals, "display": c.display} for c in r.cells]}
                      for r in self.rows],
         }
 
@@ -154,10 +187,63 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
                 continue
             row.cells[c_i] = _sum([row.cells[j] for j in idx], f"sum of columns {_span(idx)}")
 
+    _apply_formats(rows, rows_spec, columns, problems)
+    subtitle = _fill_text(spec.get("subtitle"), spec.get("values"), results, problems)
+    note = _fill_text(spec.get("note"), spec.get("values"), results, problems)
     if problems:
         raise TableSpecError(problems)
     return Table(id=str(spec.get("id") or f"t{index + 1}"), title=str(spec.get("title", "")),
-                 note=str(spec.get("note", "") or ""), headers=headers, rows=rows)
+                 note=note, headers=headers, rows=rows,
+                 row_header=str(spec.get("row_header") or ""), subtitle=subtitle)
+
+
+def _apply_formats(rows, rows_spec, columns, problems):
+    """The most specific display setting wins: cell, then row, then column."""
+    for r_i, (row, rs) in enumerate(zip(rows, rows_spec)):
+        cells_spec = rs.get("cells") if isinstance(rs.get("cells"), list) else []
+        for c_i, cell in enumerate(row.cells):
+            levels = [cells_spec[c_i] if c_i < len(cells_spec) else None, rs,
+                      columns[c_i] if c_i < len(columns) else None]
+            levels = [x for x in levels if isinstance(x, dict)]
+            fmt = next((x["format"] for x in levels if x.get("format")), None)
+            dec = next((x["decimals"] for x in levels if x.get("decimals") is not None), None)
+            if fmt is not None and fmt not in FORMATS:
+                problems.append(f"row {r_i} col {c_i}: unknown format {fmt!r}")
+                continue
+            cell.format = fmt
+            if dec is not None:
+                if not isinstance(dec, int) or isinstance(dec, bool) or not 0 <= dec <= 6:
+                    problems.append(f"row {r_i} col {c_i}: decimals must be a whole number from 0 to 6")
+                    continue
+                cell.decimals = dec
+
+
+def _fill_text(text, values, results, problems) -> str:
+    """Fill {placeholders} from query results, so figures in text stay tied to local data."""
+    if not text:
+        return ""
+    text = str(text)
+    values = values if isinstance(values, dict) else {}
+
+    def fill(match):
+        name = match.group(1)
+        spec = values.get(name)
+        if not isinstance(spec, dict):
+            problems.append(f"{{{name}}} has no binding in values")
+            return match.group(0)
+        try:
+            cell = _resolve_cell(spec, results, None)
+        except TableSpecError as e:
+            problems.extend(f"{{{name}}}: {p}" for p in e.problems)
+            return match.group(0)
+        fmt = spec.get("format")
+        if fmt is not None and fmt not in FORMATS:
+            problems.append(f"{{{name}}}: unknown format {fmt!r}")
+            return match.group(0)
+        cell.format, cell.decimals = fmt, spec.get("decimals")
+        return cell.display
+
+    return _PLACEHOLDER.sub(fill, text)
 
 
 def _resolve_cell(cs, results, column) -> Cell:

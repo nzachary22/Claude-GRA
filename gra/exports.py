@@ -6,28 +6,54 @@ import io
 import re
 
 from .engine import Note
-from .tables import Cell, Table
-
-GAP_MARK = "n/a"
+from .tables import DEFAULT_DECIMALS, GAP_MARK, Cell, Table
 
 
 def display(cell: Cell) -> str:
-    if cell.gap:
-        return GAP_MARK
-    v = cell.value
-    if v is None:
-        return ""
-    if isinstance(v, bool):
-        return str(v)
-    if isinstance(v, int):
-        return f"{v:,}"
-    if isinstance(v, float):
-        return f"{v:,.2f}".rstrip("0").rstrip(".")
-    return str(v)
+    return cell.display
 
 
 def notes_for(table: Table, notes: list[Note]) -> list[Note]:
-    return [n for n in notes if not n.tables or table.id in n.tables]
+    """Notes about this table alone. Notes that span tables are shown once, up front."""
+    return [n for n in notes if n.tables == [table.id]]
+
+
+def shared_notes(tables: list[Table], notes: list[Note]) -> list[Note]:
+    ids = {t.id for t in tables}
+    return [n for n in notes if not (len(n.tables) == 1 and n.tables[0] in ids)]
+
+
+def shared_note_line(n: Note, tables: list[Table]) -> str:
+    """Name the affected tables unless the note applies to all of them."""
+    named = [t.title for t in tables if t.id in n.tables]
+    if not n.tables or len(named) == len(tables) or not named:
+        return _note_line(n)
+    return f"{_note_line(n)} [Affects: {'; '.join(named)}]"
+
+
+def heading_lines(report: dict, fallback: str) -> tuple[str, list[str]]:
+    """The document title and any lines under it, in the report's own words."""
+    org, title = report.get("organization"), report.get("title")
+    head = org or title or fallback
+    below = [x for x in ((title if org else None), report.get("subtitle")) if x]
+    return head, below
+
+
+def excel_format(cell: Cell) -> str | None:
+    """The Excel number format that matches the cell's display."""
+    d = DEFAULT_DECIMALS.get(cell.format or "", 0) if cell.decimals is None else cell.decimals
+    frac = "." + "0" * d if d else ""
+    if cell.format == "percent":
+        return f"0{frac}%"
+    if cell.format == "currency":
+        return f'"$"#,##0{frac}'
+    if cell.format == "number":
+        return f"#,##0{frac}"
+    if isinstance(cell.value, int):
+        return "#,##0"
+    if isinstance(cell.value, float):
+        return "#,##0.00"
+    return None
 
 
 def _note_line(n: Note) -> str:
@@ -50,7 +76,7 @@ def _gap_lines(table: Table) -> list[str]:
 
 # ---------------------------------------------------------------- Word
 
-def to_docx(tables: list[Table], notes: list[Note], title: str, period: str) -> bytes:
+def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, report: dict | None = None) -> bytes:
     from docx import Document
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -62,8 +88,16 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(10)
-    doc.add_heading(title, level=0)
+    head, below = heading_lines(report or {}, title)
+    doc.add_heading(head, level=0)
+    for line in below:
+        doc.add_paragraph(line)
     doc.add_paragraph(f"Reporting period: {period}. Draft prepared from current local data; review before submission.")
+    shared = shared_notes(tables, notes)
+    if shared:
+        doc.add_heading("Assumptions and notes for more than one table", level=2)
+        for n in shared:
+            doc.add_paragraph(shared_note_line(n, tables), style="List Bullet").runs[0].font.size = Pt(9)
 
     def shade(cell, hex_color):
         tc_pr = cell._tc.get_or_add_tcPr()
@@ -75,11 +109,13 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
 
     for t in tables:
         doc.add_heading(t.title, level=1)
+        if t.subtitle:
+            doc.add_paragraph(t.subtitle).runs[0].italic = True
         grid = doc.add_table(rows=1, cols=len(t.headers) + 1)
         grid.style = "Table Grid"
         grid.alignment = WD_TABLE_ALIGNMENT.CENTER
         hdr = grid.rows[0].cells
-        for i, text in enumerate([""] + t.headers):
+        for i, text in enumerate([t.row_header] + t.headers):
             hdr[i].text = text
             for p in hdr[i].paragraphs:
                 for run in p.runs:
@@ -119,11 +155,6 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
         for n in notes_for(t, notes):
             doc.add_paragraph(_note_line(n), style="List Bullet").runs[0].font.size = Pt(9)
 
-    general = [n for n in notes if not any(t.id in n.tables for t in tables)]
-    if general:
-        doc.add_heading("Assumptions and data notes", level=1)
-        for n in general:
-            doc.add_paragraph(_note_line(n), style="List Bullet")
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -131,7 +162,7 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
 
 # ---------------------------------------------------------------- Excel
 
-def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str) -> bytes:
+def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str, report: dict | None = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -145,15 +176,17 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
     total_fill = PatternFill("solid", fgColor="EDEDED")
     gap_font = Font(color="C05000", italic=True)
     used: set[str] = set()
+    head, below = heading_lines(report or {}, title)
+    shared = shared_notes(tables, notes)
 
     for t in tables:
         ws = wb.create_sheet(_sheet_name(t.title or t.id, used))
         ws["A1"] = t.title
         ws["A1"].font = Font(bold=True, size=13)
-        ws["A2"] = f"{title} · {period}"
+        ws["A2"] = t.subtitle or f"{head} · {period}"
         ws["A2"].font = Font(italic=True, color="595959")
         hr = 4
-        for i, h in enumerate([""] + t.headers, start=1):
+        for i, h in enumerate([t.row_header] + t.headers, start=1):
             c = ws.cell(row=hr, column=i, value=h)
             c.font = Font(bold=True)
             c.fill = header_fill
@@ -176,11 +209,13 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
                     x.font = gap_font
                     x.alignment = Alignment(horizontal="right")
                 else:
-                    x = ws.cell(row=row, column=i, value=cell.value)
-                    if isinstance(cell.value, int):
-                        x.number_format = "#,##0"
-                    elif isinstance(cell.value, float):
-                        x.number_format = "#,##0.00"
+                    # Excel percentages are fractions; the table holds them on a 0-100 scale.
+                    stored = cell.value / 100 if cell.format == "percent" and cell.is_number else cell.value
+                    x = ws.cell(row=row, column=i, value=stored)
+                    fmt = excel_format(cell) if cell.is_number else None
+                    if fmt:
+                        x.number_format = fmt
+                    x.alignment = Alignment(horizontal="right")
                 x.border = border
             if r.kind in ("subtotal", "total"):
                 for i in range(1, len(t.headers) + 2):
@@ -189,6 +224,8 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
                         ws.cell(row=row, column=i).fill = total_fill
         row += 2
         lines = ([t.note] if t.note else []) + _gap_lines(t) + [_note_line(n) for n in notes_for(t, notes)]
+        if shared:
+            lines.append("See the Notes sheet for assumptions that apply to more than one table.")
         for line in lines:
             ws.cell(row=row, column=1, value=line).alignment = Alignment(wrap_text=False)
             row += 1
@@ -200,14 +237,17 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str) -> 
     ws = wb.create_sheet("Notes")
     ws["A1"] = "Assumptions, gaps and warnings"
     ws["A1"].font = Font(bold=True, size=13)
+    ws["A2"] = " · ".join([head, *below, period])
+    ws["A2"].font = Font(italic=True, color="595959")
     for j, h in enumerate(["Id", "Type", "Note", "Tables", "How to change"], start=1):
         c = ws.cell(row=3, column=j, value=h)
         c.font = Font(bold=True)
         c.fill = header_fill
     for i, n in enumerate(notes, start=4):
-        for j, v in enumerate([n.id, n.kind, n.text, ", ".join(n.tables), n.how_to_change], start=1):
+        affected = "; ".join(t.title for t in tables if t.id in n.tables) or "All tables"
+        for j, v in enumerate([n.id, n.kind, n.text, affected, n.how_to_change], start=1):
             ws.cell(row=i, column=j, value=v).alignment = Alignment(wrap_text=True, vertical="top")
-    for col, w in zip("ABCDE", (8, 12, 70, 14, 45)):
+    for col, w in zip("ABCDE", (8, 12, 70, 30, 45)):
         ws.column_dimensions[col].width = w
     buf = io.BytesIO()
     wb.save(buf)

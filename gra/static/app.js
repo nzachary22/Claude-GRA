@@ -5,12 +5,17 @@
 
   // ------------------------------------------------------------ helpers
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const fmt = (cell) => {
-    if (cell.gap) return "n/a";
-    const v = cell.value;
-    if (v === null || v === undefined) return "";
-    if (typeof v === "number") return Number.isInteger(v) ? v.toLocaleString("en-US") : v.toLocaleString("en-US", { maximumFractionDigits: 2 });
-    return String(v);
+  const fmt = (cell) => cell.display ?? "";
+  const kindLabel = (k) => ({ assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
+  // A note about one table sits beside it; anything broader is shown once, above the tables.
+  const noteScope = (r) => {
+    const ids = new Set(r.tables.map((t) => t.id));
+    const single = (n) => n.tables.length === 1 && ids.has(n.tables[0]);
+    return { single, shared: r.notes.filter((n) => !single(n)) };
+  };
+  const affects = (n, r) => {
+    const named = r.tables.filter((t) => n.tables.includes(t.id)).map((t) => t.title);
+    return named.length && named.length < r.tables.length ? named.join("; ") : "";
   };
   async function api(path, opts = {}) {
     const res = await fetch(path, opts);
@@ -130,23 +135,24 @@
     state.last = r;
     show("review");
     const gaps = r.tables.reduce((n, t) => n + t.rows.reduce((m, row) => m + row.cells.filter((c) => c.gap).length, 0), 0);
-    $("review-sub").textContent = `Reporting period ${r.period[0]} to ${r.period[1]} · ${r.tables.length} table(s) · ${r.notes.length} note(s)` + (gaps ? ` · ${gaps} unavailable figure(s)` : "");
+    $("review-title").textContent = r.report.organization || r.report.title || "Draft tables";
+    const reportLine = [r.report.organization ? r.report.title : "", r.report.subtitle].filter(Boolean).join(" · ");
+    $("review-sub").textContent = (reportLine ? `${reportLine} · ` : "") + `Draft · Reporting period ${r.period[0]} to ${r.period[1]} · ${r.tables.length} table(s) · ${r.notes.length} note(s)` + (gaps ? ` · ${gaps} unavailable figure(s)` : "");
     $("dl-word").href = `/api/runs/${r.id}/export.docx`;
     $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
-    const tableIds = new Set(r.tables.map((t) => t.id));
-    const general = r.notes.filter((n) => !n.tables.length || !n.tables.some((id) => tableIds.has(id)));
-    $("general-notes").innerHTML = general.length ? `<div class="card"><h3>Assumptions and notes for all tables</h3><div class="notes">${general.map(noteHtml).join("")}</div></div>` : "";
+    const scope = noteScope(r);
+    $("general-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
     $("tables").innerHTML = r.tables.map((t) => {
-      const notes = r.notes.filter((n) => n.tables.includes(t.id));
-      return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3><div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
-        <aside class="notes">${notes.length ? notes.map(noteHtml).join("") : '<p class="muted">No assumptions recorded for this table.</p>'}</aside></div>`;
+      const notes = r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id);
+      return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3>${t.subtitle ? `<p class="table-sub">${esc(t.subtitle)}</p>` : ""}<div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
+        <aside class="notes">${notes.length ? notes.map((n) => noteHtml(n)).join("") : '<p class="muted">No notes specific to this table.</p>'}</aside></div>`;
     }).join("");
     document.querySelectorAll("[data-change]").forEach((b) => (b.onclick = () => openChange(b)));
     $("tech").open = false;
     $("tech-body").textContent = "Loading…";
   }
   function tableHtml(t) {
-    const head = `<thead><tr><th></th>${t.headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>`;
+    const head = `<thead><tr><th>${esc(t.row_header)}</th>${t.headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>`;
     const body = t.rows.map((row) => {
       if (row.kind === "heading") return `<tr class="heading"><td colspan="${t.headers.length + 1}">${esc(row.label)}</td></tr>`;
       const pad = row.indent ? ` style="padding-left:${9 + row.indent * 16}px"` : "";
@@ -157,9 +163,9 @@
     }).join("");
     return `<table class="report">${head}<tbody>${body}</tbody></table>`;
   }
-  function noteHtml(n) {
-    const label = { assumption: "Assumption", gap: "Data gap", warning: "Warning" }[n.kind] || n.kind;
-    return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(label)}</div><div>${esc(n.text)}</div>
+  function noteHtml(n, affected = "") {
+    return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind))}</div><div>${esc(n.text)}</div>
+      ${affected ? `<div class="muted">Affects: ${esc(affected)}</div>` : ""}
       ${n.how_to_change ? `<div class="muted">${esc(n.how_to_change)}</div>` : ""}
       <div class="change"><button class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">Change</button></div></div>`;
   }
@@ -190,10 +196,16 @@
 
   $("copy").onclick = async () => {
     const r = state.last; if (!r) return;
-    const html = r.tables.map((t) => `<h3>${esc(t.title)}</h3>${tableHtml(t).replace('class="report"', 'border="1" cellpadding="4" style="border-collapse:collapse"')}${t.note ? `<p><i>${esc(t.note)}</i></p>` : ""}` +
-      r.notes.filter((n) => n.tables.includes(t.id)).map((n) => `<p><small>${esc(n.kind)}: ${esc(n.text)}</small></p>`).join("")).join("<br>");
-    const text = r.tables.map((t) => [t.title, ["", ...t.headers].join("\t"),
-      ...t.rows.map((row) => [" ".repeat(row.indent * 2) + row.label, ...(row.kind === "heading" ? [] : row.cells.map(fmt))].join("\t"))].join("\n")).join("\n\n");
+    const scope = noteScope(r);
+    const heading = [r.report.organization, r.report.title, r.report.subtitle].filter(Boolean);
+    const noteLine = (n) => { const a = affects(n, r); return `${kindLabel(n.kind)}: ${n.text}${a ? ` [Affects: ${a}]` : ""}`; };
+    const htmlHead = heading.map((x, i) => (i ? `<p>${esc(x)}</p>` : `<h2>${esc(x)}</h2>`)).join("") +
+      scope.shared.map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("");
+    const html = htmlHead + r.tables.map((t) => `<h3>${esc(t.title)}</h3>${t.subtitle ? `<p><i>${esc(t.subtitle)}</i></p>` : ""}${tableHtml(t).replace('class="report"', 'border="1" cellpadding="4" style="border-collapse:collapse"')}${t.note ? `<p><i>${esc(t.note)}</i></p>` : ""}` +
+      r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("")).join("<br>");
+    const text = [...heading, ...scope.shared.map(noteLine), ...r.tables.map((t) => [t.title, ...(t.subtitle ? [t.subtitle] : []), [t.row_header, ...t.headers].join("\t"),
+      ...t.rows.map((row) => [" ".repeat(row.indent * 2) + row.label, ...(row.kind === "heading" ? [] : row.cells.map(fmt))].join("\t")),
+      ...(t.note ? [t.note] : []), ...r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map(noteLine)].join("\n"))].join("\n\n");
     try {
       if (window.ClipboardItem) await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })]);
       else await navigator.clipboard.writeText(text);

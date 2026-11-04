@@ -74,6 +74,7 @@ table.report tr.heading td { background: var(--zebra); font-weight: 600; }
 table.report tr.subtotal td { font-weight: 600; }
 table.report tr.total td { font-weight: 700; background: var(--head); }
 table.report td[title] { cursor: help; }
+.table-sub { font-size: 13px; color: var(--muted); margin: -4px 0 8px; }
 .caption { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
 .notes { display: flex; flex-direction: column; gap: 10px; }
 .note { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 7px; padding: 10px 12px; font-size: 14px; background: var(--card); }

@@ -75,6 +75,50 @@ def test_ambiguous_match_and_unknown_query(results):
     assert any("unknown query" in p for p in e.value.problems)
 
 
+def test_formats_cell_beats_row_beats_column(results):
+    s = spec()
+    s[0]["columns"][0].update(format="percent", decimals=1)
+    s[0]["rows"][1]["format"] = "currency"
+    s[0]["rows"][1]["decimals"] = 0
+    s[0]["rows"][1]["cells"][1]["format"] = "number"
+    (t,) = resolve_tables(s, results)
+    assert t.rows[0].cells[0].display == "5.0%"
+    assert t.rows[1].cells[0].display == "$3"
+    assert t.rows[1].cells[1].display == "0"
+    assert t.rows[2].cells[0].display == "8.0%"  # computed totals take the column format
+    assert t.rows[0].cells[1].display == "1"
+
+
+def test_unknown_format_is_rejected(results):
+    s = spec()
+    s[0]["columns"][0]["format"] = "fancy"
+    with pytest.raises(TableSpecError, match="unknown format"):
+        resolve_tables(s, results)
+
+
+def test_row_header_and_bound_text(results):
+    s = spec()
+    s[0]["row_header"] = "Gender"
+    s[0]["subtitle"] = "Women who are adults: {n}"
+    s[0]["note"] = "Average {avg} minutes."
+    s[0]["values"] = {"n": cell(gender="woman", age="adult"),
+                      "avg": {"query": "Q2", "column": "avg_minutes", "decimals": 1}}
+    (t,) = resolve_tables(s, results)
+    assert t.row_header == "Gender"
+    assert t.subtitle == "Women who are adults: 5"
+    assert t.note == "Average 42.5 minutes."
+
+
+def test_text_placeholders_must_be_bound_to_results(results):
+    s = spec()
+    s[0]["subtitle"] = "Clients: {clients}"
+    with pytest.raises(TableSpecError, match="no binding"):
+        resolve_tables(s, results)
+    s[0]["values"] = {"clients": {"query": "Q9", "column": "n"}}
+    with pytest.raises(TableSpecError, match="unknown query"):
+        resolve_tables(s, results)
+
+
 def test_single_value_query_and_decimals(results):
     s = [{"id": "t2", "title": "Average", "columns": [{"header": "Minutes"}],
           "rows": [{"label": "Average", "cells": [{"query": "Q2", "decimals": 0}]}]}]

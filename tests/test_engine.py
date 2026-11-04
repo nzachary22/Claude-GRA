@@ -108,6 +108,19 @@ def test_correction_recalculates(tiny_db):
     assert "North county" in json.dumps(last_user)
 
 
+def test_report_name_is_kept_and_survives_a_correction(tiny_db):
+    session, _ = make(tiny_db, [
+        [("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})],
+        [("submit_tables", {"report": {"organization": "Example Center", "title": "Annual report", "ignored": "x"},
+                            "tables": [gender_table()]})],
+        [("submit_tables", {"tables": [gender_table()]})],
+    ])
+    session.run()
+    assert session.report == {"organization": "Example Center", "title": "Annual report"}
+    session.correct("Keep everything the same.")
+    assert session.snapshot()["report"]["organization"] == "Example Center"
+
+
 def test_schema_description_hides_values(tiny_db):
     db, catalog = tiny_db
     text = describe(db, catalog)

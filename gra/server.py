@@ -144,7 +144,7 @@ def create_app(model_factory=None) -> FastAPI:
     @app.get("/api/runs/{run_id}")
     def poll(run_id: str, since: int = 0):
         run = get_run(run_id)
-        snap = run.session.snapshot(0) if run.session else {"events": [], "tables": [], "notes": [], "queries_used": 0}
+        snap = run.session.snapshot(0) if run.session else {"events": [], "tables": [], "notes": [], "report": {}, "queries_used": 0}
         events = run.pre_events + snap["events"]
         status = run.status if run.session is None else _merge_status(run, snap["status"])
         return {
@@ -152,7 +152,7 @@ def create_app(model_factory=None) -> FastAPI:
             "period": run.period, "report_files": run.report_names, "data_files": run.data_names,
             "import_summary": run.import_summary,
             "events": events[since:], "event_count": len(events),
-            "tables": snap["tables"], "notes": snap["notes"], "queries_used": snap["queries_used"],
+            "tables": snap["tables"], "notes": snap["notes"], "report": snap["report"], "queries_used": snap["queries_used"],
         }
 
     @app.post("/api/runs/{run_id}/cancel")
@@ -195,10 +195,10 @@ def create_app(model_factory=None) -> FastAPI:
         period = f"{run.period[0]} to {run.period[1]}"
         stamp = run.period[1].replace("-", "")
         if fmt == "docx":
-            data = to_docx(tables, notes, title, period)
+            data = to_docx(tables, notes, title, period, run.session.report)
             media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif fmt == "xlsx":
-            data = to_xlsx(tables, notes, title, period)
+            data = to_xlsx(tables, notes, title, period, run.session.report)
             media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else:
             raise HTTPException(404, "Unknown format.")

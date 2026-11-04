@@ -47,6 +47,8 @@ def test_upload_prepare_review_export(client, tiny_files, tmp_path):
     r = wait(client, run_id)
     assert r["status"] == "done"
     assert r["tables"][0]["title"] == "Clients by gender"
+    assert r["report"] == {}
+    assert r["tables"][0]["rows"][0]["cells"][0]["display"] != ""
     assert any("protected" in e["message"] for e in r["events"])
     for fmt in ("docx", "xlsx"):
         res = client.get(f"/api/runs/{run_id}/export.{fmt}")
