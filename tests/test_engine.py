@@ -129,3 +129,14 @@ def test_schema_description_hides_values(tiny_db):
     for secret in ("C-001", "Stone", "1980-02-01"):
         assert secret not in text
     assert "Housing" in text  # reference table contents are shared
+
+
+def test_report_definitions_are_kept(tiny_db):
+    session, _ = make(tiny_db, [
+        [("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})],
+        [("submit_tables", {"report": {"title": "Annual report", "definitions": [
+            {"heading": "What the figures count", "text": "Closed cases in the period."}, {"heading": "empty", "text": " "},
+            "not a definition"]}, "tables": [gender_table()]})],
+    ])
+    session.run()
+    assert session.report["definitions"] == [{"heading": "What the figures count", "text": "Closed cases in the period."}]
