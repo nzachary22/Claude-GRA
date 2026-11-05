@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import time
@@ -106,7 +107,9 @@ def test_cancel_mid_run(tmp_path, monkeypatch, tiny_files):
 
 def test_page_status_does_not_load_the_slow_ai_library():
     code = "import sys, gra.server, gra.llm; gra.llm.get_api_key(); sys.exit('anthropic' in sys.modules or 'openai' in sys.modules)"
-    assert subprocess.run([sys.executable, "-c", code], timeout=120).returncode == 0
+    # Placeholder keys, so the child never looks in the real Windows user environment.
+    env = {**os.environ, "ANTHROPIC_API_KEY": "test-placeholder", "OPENAI_API_KEY": "test-placeholder"}
+    assert subprocess.run([sys.executable, "-c", code], timeout=120, env=env).returncode == 0
 
 
 def test_out_of_credit_is_explained_in_plain_words():

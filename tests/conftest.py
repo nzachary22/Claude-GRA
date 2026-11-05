@@ -17,6 +17,34 @@ def write_csv(path: Path, header, rows):
     return path
 
 
+@pytest.fixture(autouse=True)
+def isolated_from_this_computer(tmp_path_factory, monkeypatch):
+    """Keep every test away from the real app-data folder and the real saved API keys.
+
+    Tests run on the same Windows account as the app, so without this a test could
+    create folders in the real %LOCALAPPDATA%\\GrantReportingAssistant or read a key
+    from Windows Credential Manager or the environment.
+    """
+    home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("GRA_DATA_DIR", str(home / "appdata"))
+    monkeypatch.setenv("LOCALAPPDATA", str(home / "localappdata"))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    # Child processes started by tests get no keyring at all.
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
+    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+    import keyring
+
+    from gra import llm
+
+    store: dict = {}
+    monkeypatch.setattr(keyring, "get_password", lambda service, user: store.get((service, user)))
+    monkeypatch.setattr(keyring, "set_password", lambda service, user, key: store.__setitem__((service, user), key))
+    monkeypatch.setattr(llm, "_windows_user_env", lambda name: None)
+
+
 @pytest.fixture
 def tiny_files(tmp_path):
     clients = write_csv(tmp_path / "clients.csv",
