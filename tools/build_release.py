@@ -17,7 +17,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TOP_FILES = {"start.bat", "pyproject.toml", "LICENSE", "README.md"}
+TOP_FILES = {"start.bat", "start.command", "pyproject.toml", "LICENSE", "README.md"}
+EXECUTABLE = {"start.command"}
 PACKAGE = "gra/"
 BLOCKED = re.compile(r"\.(db|sqlite3?|csv|xlsx?|docx|pdf|env|key|pem|log)$|__pycache__|(^|/)\.", re.I)
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
@@ -44,21 +45,29 @@ def program_files() -> list[str]:
 def main() -> None:
     if git("status", "--porcelain", "--untracked-files=no").strip():
         sys.exit("Commit or discard changes first; the zip must match a commit.")
+    build()
+
+
+def build(dest: Path = ROOT / "dist") -> Path:
     ver = version()
     name = f"grant-reporting-assistant-{ver}"
-    out = ROOT / "dist" / f"{name}.zip"
+    out = dest / f"{name}.zip"
     out.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for f in program_files():
             data = (ROOT / f).read_bytes()
             if f.endswith(".bat"):
                 data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            elif f.endswith(".command"):
+                data = data.replace(b"\r\n", b"\n")
             info = zipfile.ZipInfo(f"{name}/{f}", FIXED_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
+            info.create_system = 3  # Unix permissions, so the Mac starter stays double-clickable
+            info.external_attr = (0o100755 if f in EXECUTABLE else 0o100644) << 16
             z.writestr(info, data)
     digest = hashlib.sha256(out.read_bytes()).hexdigest()
-    print(f"{out.relative_to(ROOT)}\n{out.stat().st_size:,} bytes\nSHA-256 {digest}\ncommit {git('rev-parse', 'HEAD').strip()}")
+    print(f"{out}\n{out.stat().st_size:,} bytes\nSHA-256 {digest}\ncommit {git('rev-parse', 'HEAD').strip()}")
+    return out
 
 
 if __name__ == "__main__":
