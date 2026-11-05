@@ -36,6 +36,7 @@ h3 { margin: 0 0 8px; font-size: 16px; }
 input, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; }
 textarea { width: 100%; resize: vertical; margin-bottom: 10px; }
 button, .button { font: inherit; border-radius: 7px; padding: 8px 16px; cursor: pointer; border: 1px solid var(--line); text-decoration: none; display: inline-block; }
+button[hidden] { display: none; }
 .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .primary:disabled { opacity: .45; cursor: default; }
 .secondary { background: var(--card); color: var(--ink); }

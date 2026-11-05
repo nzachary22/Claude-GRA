@@ -99,13 +99,22 @@ def create_app(model_factory=None) -> FastAPI:
 
     @app.get("/api/status")
     def status():
-        from .llm import PROVIDERS, active_provider, key_status
+        from .llm import PROVIDERS, active_provider, key_status, setup_shown
 
         keys = key_status()
         provider = active_provider()
         return {"version": __version__, "provider": provider,
                 "has_key": model_factory is not None or keys[provider], "keys": keys,
+                "show_setup": not setup_shown(),
                 "providers": [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items()]}
+
+    @app.post("/api/setup-shown")
+    def setup_was_shown():
+        """Settings has opened by itself once; later starts open straight to Upload."""
+        from .llm import mark_setup_shown
+
+        mark_setup_shown()
+        return {"ok": True}
 
     @app.post("/api/key")
     def set_key(body: KeyIn):

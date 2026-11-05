@@ -51,23 +51,36 @@ def _settings_path():
     return app_data_dir() / "settings.json"
 
 
-def saved_provider() -> str | None:
+def _read_settings() -> dict:
     try:
-        value = json.loads(_settings_path().read_text(encoding="utf-8")).get("provider")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return value if value in PROVIDERS else None
+        settings = json.loads(_settings_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return settings if isinstance(settings, dict) else {}
+
+
+def _save_setting(name: str, value) -> None:
+    settings = _read_settings()
+    settings[name] = value
+    _settings_path().write_text(json.dumps(settings), encoding="utf-8")
+
+
+def saved_provider() -> str | None:
+    value = _read_settings().get("provider")
+    return value if isinstance(value, str) and value in PROVIDERS else None
 
 
 def set_provider(provider: str) -> None:
-    path = _settings_path()
-    try:
-        settings = json.loads(path.read_text(encoding="utf-8"))
-        settings = settings if isinstance(settings, dict) else {}
-    except (OSError, ValueError):
-        settings = {}
-    settings["provider"] = _check_provider(provider)
-    path.write_text(json.dumps(settings), encoding="utf-8")
+    _save_setting("provider", _check_provider(provider))
+
+
+def setup_shown() -> bool:
+    """Whether Settings has opened by itself once, so existing users see the choice of AI service."""
+    return _read_settings().get("setup_shown") is True
+
+
+def mark_setup_shown() -> None:
+    _save_setting("setup_shown", True)
 
 
 def active_provider() -> str:

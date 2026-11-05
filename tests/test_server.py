@@ -116,6 +116,31 @@ def test_out_of_credit_is_explained_in_plain_words():
     assert status_message(500, "server trouble") == "The AI service returned an error (500)."
 
 
+def test_settings_open_by_themselves_only_once(client):
+    assert client.get("/api/status").json()["show_setup"] is True
+    assert client.post("/api/setup-shown").status_code == 200
+    assert client.get("/api/status").json()["show_setup"] is False
+    assert TestClient(create_app()).get("/api/status").json()["show_setup"] is False  # also after a restart
+
+
+def test_setup_flag_and_chosen_service_do_not_overwrite_each_other(client):
+    from gra import llm
+
+    llm.set_provider("openai")
+    llm.mark_setup_shown()
+    assert llm.saved_provider() == "openai" and llm.setup_shown()
+    llm.set_provider("anthropic")
+    assert llm.saved_provider() == "anthropic" and llm.setup_shown()
+
+
+def test_a_damaged_settings_file_opens_settings_again(client):
+    from gra.paths import app_data_dir
+
+    (app_data_dir() / "settings.json").write_text("not json", encoding="utf-8")
+    s = client.get("/api/status").json()
+    assert s["show_setup"] is True and s["provider"] == "anthropic"
+
+
 def test_choosing_the_ai_service(tmp_path, monkeypatch):
     import keyring
 

@@ -14,7 +14,7 @@ Requirements: Windows, Python 3.11 or newer from [python.org](https://www.python
 
 1. Download `grant-reporting-assistant-1.1.0.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases) and unzip it to a local folder, such as `Documents\Grant Reporting Assistant`. Avoid OneDrive, Google Drive or Dropbox folders.
 2. Double-click `start.bat`. The first run sets up a private Python environment in `%LOCALAPPDATA%\GrantReportingAssistant` (about a minute), adds a **Grant Reporting Assistant** shortcut to the desktop and the Start menu, and opens the app at `http://127.0.0.1:8765/`. From then on, start the app from that shortcut.
-3. Choose Anthropic (Claude) or OpenAI and paste your API key once; it is stored in Windows Credential Manager. Both keys can be saved, and Settings switches between them.
+3. Choose Anthropic (Claude) or OpenAI and paste your API key once; it is stored in Windows Credential Manager. Both keys can be saved, and Settings switches between them. Settings opens by itself the first time, even if a key is already saved, and whenever no key is found.
 4. Keep the black window open while using the app; close it to stop.
 
 If Windows shows "Windows protected your PC" the first time, choose **More info**, then **Run anyway**. If the folder is moved, run `start.bat` from its new place once and the shortcuts are updated.
