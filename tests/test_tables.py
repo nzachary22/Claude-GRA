@@ -148,3 +148,17 @@ def test_single_value_query_and_decimals(results):
           "rows": [{"label": "Average", "cells": [{"query": "Q2", "decimals": 0}]}]}]
     (t,) = resolve_tables(s, results)
     assert t.rows[0].cells[0].value == 42.0 or t.rows[0].cells[0].value == 42
+
+
+@pytest.mark.parametrize("bad", [
+    {"query": {"id": "Q1"}, "column": "n"},
+    {"query": "Q1", "column": {"name": "n"}},
+    {"query": "Q1", "column": "n", "match": [{"gender": "woman"}]},
+    {"query": "Q1", "column": "n", "match": {"gender": {"eq": "woman"}, "age": "adult"}},
+])
+def test_malformed_bindings_come_back_as_problems_not_crashes(results, bad):
+    s = spec()
+    s[0]["rows"][0]["cells"][0] = bad
+    with pytest.raises(TableSpecError) as e:
+        resolve_tables(s, results)
+    assert e.value.problems and all(p.startswith("table t1:") for p in e.value.problems)
