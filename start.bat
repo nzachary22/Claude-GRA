@@ -2,8 +2,19 @@
 rem Grant Reporting Assistant V.1.0 - starts the local app and opens the browser.
 rem Setup runs on first use, and again whenever this folder moves or a new version
 rem changes the requirements. The Python environment lives outside this folder.
+rem Setup also puts a "Grant Reporting Assistant" shortcut on the desktop and in
+rem the Start menu, so later the app starts from there.
 setlocal
+title Grant Reporting Assistant
 cd /d "%~dp0"
+set "GRA_DIR=%CD%"
+if /i not "%GRA_DIR:\AppData\Local\Temp\=%"=="%GRA_DIR%" (
+  echo This is running from inside the zip file.
+  echo First unzip it: right-click the zip, choose "Extract All...", pick a folder
+  echo such as Documents, then double-click start.bat in the extracted folder.
+  pause
+  exit /b 1
+)
 set "VENV=%LOCALAPPDATA%\GrantReportingAssistant\venv"
 set "STAMP=%VENV%\gra-setup.txt"
 
@@ -34,9 +45,22 @@ if errorlevel 1 (
 )
 cd > "%STAMP%"
 type pyproject.toml >> "%STAMP%"
+call :shortcuts
 
 :run
 echo Grant Reporting Assistant is running at http://127.0.0.1:8765/
 echo Close this window to stop it.
 "%VENV%\Scripts\python.exe" -m gra.server
 if errorlevel 1 pause
+exit /b
+
+:shortcuts
+rem Desktop and Start menu shortcuts pointing at this folder. Rewritten on every
+rem setup, so they follow the folder if it moves. A failure here is not fatal.
+powershell -NoProfile -NonInteractive -Command "$ErrorActionPreference='Stop'; $d=$env:GRA_DIR; $w=New-Object -ComObject WScript.Shell; foreach($f in [Environment]::GetFolderPath('Desktop'),[Environment]::GetFolderPath('Programs')){ $s=$w.CreateShortcut((Join-Path $f 'Grant Reporting Assistant.lnk')); $s.TargetPath=(Join-Path $d 'start.bat'); $s.WorkingDirectory=$d; $s.IconLocation=(Join-Path $d 'gra\static\icon.ico')+',0'; $s.Description='Start the Grant Reporting Assistant'; $s.Save() }" >nul 2>&1
+if errorlevel 1 (
+  echo Could not add the desktop shortcut. Start the app with start.bat in this folder instead.
+) else (
+  echo Added a "Grant Reporting Assistant" shortcut to the desktop and Start menu.
+)
+exit /b 0

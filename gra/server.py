@@ -456,14 +456,39 @@ def _prune(runs: dict[str, Run]):
 app = create_app()
 
 
+def _port_state(port: int) -> str:
+    """'free', 'gra' when this app already answers on the port, or 'other'."""
+    import socket
+    import urllib.request
+
+    with socket.socket() as s:
+        s.settimeout(1)
+        if s.connect_ex(("127.0.0.1", port)) != 0:
+            return "free"
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(f"http://127.0.0.1:{port}/", timeout=3) as r:
+            return "gra" if b"<title>Grant Reporting Assistant</title>" in r.read(4096) else "other"
+    except Exception:
+        return "other"
+
+
 def main():
     import webbrowser
 
     import uvicorn
 
     port = 8765
+    url = f"http://127.0.0.1:{port}/"
+    state = _port_state(port)
+    if state == "gra":
+        print("The Grant Reporting Assistant is already running. Opening it in the browser.")
+        webbrowser.open(url)
+        return
+    if state == "other":
+        raise SystemExit(f"Another program is using port {port}. Close it, then start the app again.")
     threading.Thread(target=lambda: __import__("anthropic"), daemon=True).start()
-    threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
+    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
