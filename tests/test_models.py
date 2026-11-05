@@ -49,3 +49,30 @@ def test_haiku_long_prompts_cost_more():
     long = [{"input_tokens": 110_000, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "output_tokens": 0}]
     assert estimate_cost("claude-haiku-5-5", short)["usd"] == 0.009
     assert estimate_cost("claude-haiku-5-5", long)["usd"] == 0.055
+
+
+def test_effort_override(monkeypatch):
+    assert llm.make_client("openai").effort == "high"
+    assert llm.make_client("openai", "gpt-6-luna", "max").effort == "max"
+    monkeypatch.setenv("GRA_EFFORT", "xhigh")
+    assert llm.make_client("anthropic").effort == "xhigh"
+
+
+def test_step_up_reasons():
+    from gra.engine import Note
+    from gra.stepup import trouble
+    from gra.tables import Cell, Row, Table
+
+    def table(total):
+        rows = [Row("A", "detail", 0, [Cell(3, source="Q1")]), Row("B", "detail", 0, [Cell(4, source="Q1")]),
+                Row("Total", "total", 0, [Cell(total, source="Q2")])]
+        return Table("t1", "Table 1", "", ["Clients"], rows)
+
+    ok = SimpleNamespace(status="done", error=None, tables=[table(6)], notes={}, events=[])
+    assert trouble(ok) == []  # an unduplicated total below the sum of rows is normal
+    bad = SimpleNamespace(status="done", error=None, tables=[table(9)], events=[SimpleNamespace(kind="refused")] * 6,
+                          notes={"n1": Note("n1", "warning", "The matrix is not included in full.", [])})
+    reasons = trouble(bad)
+    assert len(reasons) == 3 and "add to only 7" in reasons[0]
+    failed = SimpleNamespace(status="failed", error="limit reached", tables=[], notes={}, events=[])
+    assert trouble(failed)[:2] == ["The run ended as failed: limit reached", "No tables were produced."]

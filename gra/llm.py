@@ -112,18 +112,19 @@ def chosen_model(provider: str) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def make_client(provider: str | None = None, model: str | None = None):
+def make_client(provider: str | None = None, model: str | None = None, effort: str | None = None):
     """A model client for the chosen service, or a plain-language error if no key is set up."""
     provider = _check_provider(provider or active_provider())
     key = get_api_key(provider)
     if not key:
         raise RuntimeError(f"No {PROVIDERS[provider]['label']} API key is set up yet. Add it under Settings.")
     model = model or chosen_model(provider)
+    effort = effort or os.environ.get("GRA_EFFORT", "").strip() or "high"
     if provider == "openai":
         from .llm_openai import MODEL as OPENAI_MODEL, OpenAIClient
 
-        return OpenAIClient(key, model or OPENAI_MODEL)
-    return ClaudeClient(key, model or MODEL)
+        return OpenAIClient(key, model or OPENAI_MODEL, effort)
+    return ClaudeClient(key, model or MODEL, effort)
 
 
 def _windows_user_env(name: str) -> str | None:

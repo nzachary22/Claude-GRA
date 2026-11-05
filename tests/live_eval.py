@@ -3,6 +3,7 @@
     python -m tests.live_eval 2025            (the service chosen in Settings; costs API credit)
     python -m tests.live_eval 2025 openai     (or anthropic, to pick the service)
     python -m tests.live_eval 2025 anthropic claude-haiku-5-5   (and a model other than the default)
+    python -m tests.live_eval 2025 openai gpt-6-luna max         (and a reasoning effort other than high)
 
 The AI chooses its own labels, so cells are matched to the expected figures by
 normalized row label and column header. Results and a progress log are saved in
@@ -24,6 +25,7 @@ from gra.importer import import_files
 from gra.llm import make_client
 from gra.paths import app_data_dir
 from gra.schema import describe
+from gra.stepup import trouble
 from tests.test_juniper_e2e import ROOT, expected
 
 
@@ -126,7 +128,7 @@ def estimate_cost(model_id: str, usage_log: list) -> dict:
     return {**totals, "requests": len(usage_log), "usd": round(usd, 4)}
 
 
-def main(year: int, provider: str | None = None, model_id: str | None = None):
+def main(year: int, provider: str | None = None, model_id: str | None = None, effort: str | None = None):
     data = ROOT / "data" / str(year)
     out = app_data_dir() / "evals" / time.strftime(f"juniper-{year}-%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
@@ -134,7 +136,7 @@ def main(year: int, provider: str | None = None, model_id: str | None = None):
     catalog = import_files(db, sorted(data.glob("*.csv")))
     gate = QueryGate(db, catalog)
     try:
-        model = make_client(provider, model_id)
+        model = make_client(provider, model_id, effort)
     except RuntimeError as e:
         sys.exit(str(e))
     track_usage(model)
@@ -151,6 +153,7 @@ def main(year: int, provider: str | None = None, model_id: str | None = None):
         "year": year, "provider": model.provider, "model": model.model, "status": session.status, "error": session.error, "seconds": round(elapsed),
         "queries_run": session.queries_used, "refused": sum(1 for e in session.events if e.kind == "refused"),
         "tables": [t.title for t in session.tables], "cells_checked": len(checks), "cells_matching": ok,
+        "effort": model.effort, "step_up_reasons": trouble(session),
         "cost": estimate_cost(model.model, model.usage_log),
         "mismatches": [c for c in checks if c[3] != c[4]][:80],
         "notes": [n.to_dict() for n in session.notes.values()],
@@ -161,10 +164,10 @@ def main(year: int, provider: str | None = None, model_id: str | None = None):
     (out / "queries.json").write_text(json.dumps([{"id": q.query_id, "purpose": q.purpose, "sql": q.sql, "columns": q.columns,
                                                    "rows": q.rows} for q in gate.log], indent=2, default=str), encoding="utf-8")
     print(json.dumps({k: summary[k] for k in ("year", "provider", "model", "status", "error", "seconds", "queries_run", "refused",
-                                              "tables", "cells_checked", "cells_matching", "cost")}, indent=2))
+                                              "tables", "cells_checked", "cells_matching", "effort", "step_up_reasons", "cost")}, indent=2))
     print("saved to", out)
 
 
 if __name__ == "__main__":
     main(int(sys.argv[1]) if len(sys.argv) > 1 else 2025, sys.argv[2] if len(sys.argv) > 2 else None,
-         sys.argv[3] if len(sys.argv) > 3 else None)
+         sys.argv[3] if len(sys.argv) > 3 else None, sys.argv[4] if len(sys.argv) > 4 else None)
