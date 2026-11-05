@@ -2,7 +2,7 @@
 
 The user picks Anthropic (Claude) or OpenAI and enters their own API key once.
 Keys are kept in the operating system's credential store (Windows Credential
-Manager), never in the repository; the choice of service is kept in the local
+Manager or the Mac Keychain), never in the repository; the choice of service is kept in the local
 app-data folder. The OpenAI client lives in llm_openai.py.
 
 The AI SDKs can take close to a minute to import on a slow or busy computer,

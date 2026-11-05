@@ -29,3 +29,16 @@ def test_child_processes_cannot_reach_real_keys():
             "print(gra.llm.get_api_key('anthropic')); print(gra.llm.get_api_key('openai'))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=True)
     assert out.stdout.split() == ["keyring.backends.null", PLACEHOLDER_KEY, PLACEHOLDER_KEY]
+
+
+def test_app_data_dir_per_platform(tmp_path, monkeypatch):
+    import gra.paths as paths
+
+    monkeypatch.delenv("GRA_DATA_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(paths.Path, "home", classmethod(lambda cls: tmp_path))
+    if paths.os.name != "nt":
+        monkeypatch.setattr(paths.sys, "platform", "darwin")
+        assert app_data_dir() == tmp_path / "Library" / "Application Support" / "GrantReportingAssistant"
+        monkeypatch.setattr(paths.sys, "platform", "linux")
+        assert app_data_dir() == tmp_path / ".local" / "share" / "grant-reporting-assistant"
