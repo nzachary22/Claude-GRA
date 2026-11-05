@@ -20,7 +20,8 @@ from typing import Callable
 
 from .engine import Cancelled
 
-MODEL = "gpt-6-astra"
+MODEL = "gpt-6.1-sol"
+EFFORT = "xhigh"  # OpenAI's "very high"
 MAX_OUTPUT_TOKENS = 64000
 # Kept on a block for replay; the activity record leaves it out (see activity.plain).
 ITEM = "provider_item"
@@ -195,14 +196,14 @@ class OpenAIClient:
     provider = "openai"
     stored = False  # every request is sent with store=false
 
-    def __init__(self, api_key: str, model: str = MODEL, effort: str = "high", client=None):
+    def __init__(self, api_key: str, client=None):
         if client is None:
             import openai
 
             client = openai.OpenAI(api_key=api_key, max_retries=4)
         self.client = client
-        self.model = model
-        self.effort = effort
+        self.model = MODEL
+        self.effort = EFFORT
 
     def respond(self, system: str, messages: list, tools: list, should_cancel: Callable[[], bool]):
         try:
