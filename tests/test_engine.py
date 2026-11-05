@@ -140,3 +140,30 @@ def test_report_definitions_are_kept(tiny_db):
     ])
     session.run()
     assert session.report["definitions"] == [{"heading": "What the figures count", "text": "Closed cases in the period."}]
+
+
+def test_correction_can_change_the_reporting_period(tiny_db):
+    half = {"start": "2025-01-01", "end": "2025-06-30"}
+    session, model = make(tiny_db, [
+        [("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})],
+        [("submit_tables", {"tables": [gender_table()]})],
+        [("submit_tables", {"report": {"period": {"start": "2025-06-30", "end": "2025-01-01"}}, "tables": [gender_table()]})],
+        [("submit_tables", {"report": {"period": {"start": "2025-01-01", "end": "2025-02-30"}}, "tables": [gender_table()]})],
+        [("submit_tables", {"report": {"period": half}, "tables": [gender_table()]})],
+        [("submit_tables", {"tables": [gender_table()]})],
+    ])
+    session.run()
+    assert session.period == ("2025-01-01", "2025-12-31")
+    session.correct("Use the first half of 2025 only.")
+    assert "2025-01-01 to 2025-12-31" in json.dumps(model.seen_messages[2][-1])
+    assert session.status == "done"
+    assert session.period == ("2025-01-01", "2025-06-30")
+    assert session.snapshot()["period"] == ["2025-01-01", "2025-06-30"]
+    rejected = [m for m in model.seen_messages[3][-1]["content"] if m.get("is_error")]
+    assert rejected and "ends before it starts" in rejected[0]["content"]
+    assert "real dates" in json.dumps(model.seen_messages[4][-1])
+    changes = [e for e in session.activity.events if e["kind"] == "period_changed"]
+    assert len(changes) == 1 and changes[0]["previous"] == ["2025-01-01", "2025-12-31"]
+    # A later correction that leaves the period out keeps the changed one.
+    session.correct("Keep everything the same.")
+    assert session.period == ("2025-01-01", "2025-06-30")

@@ -112,6 +112,7 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
     refused = sum(bool(b.get("is_error")) for b in results)
     docs = [b for e in events if e["kind"] == "message" for b in e.get("content") or [] if b.get("type") in ("document", "image")]
     period = start.get("period") or ["", ""]
+    period = next((e["period"] for e in reversed(events) if e["kind"] == "period_changed"), period)
     service, terms = service_names(start)
     out = [
         "GRANT REPORTING ASSISTANT: AI ACTIVITY LOG", "",
@@ -150,6 +151,10 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
             for b in e.get("content") or []:
                 out += _block_lines(b)
             out.append("")
+        elif e["kind"] == "period_changed":
+            prev = e.get("previous") or ["", ""]
+            out += [head + f"LOCAL: reporting period changed by a correction from {prev[0]} to {prev[1]} "
+                           f"to {e['period'][0]} to {e['period'][1]} ---", ""]
         elif e["kind"] == "response":
             out.append(head + f"RECEIVED from {e.get('model') or 'the AI'} ---")
             for b in e.get("content") or []:
