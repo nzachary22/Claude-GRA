@@ -13,11 +13,13 @@ Workflow: **Upload → Prepare automatically → Review**, with Copy, Word and E
 Requirements: Windows, Python 3.11 or newer from [python.org](https://www.python.org/downloads/) (tick "Add python.exe to PATH" when installing), an API key from Anthropic (Claude) or OpenAI, and an internet connection while preparing a report.
 
 1. Download `grant-reporting-assistant-1.1.0.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases) and unzip it to a local folder, such as `Documents\Grant Reporting Assistant`. Avoid OneDrive, Google Drive or Dropbox folders.
-2. Double-click `start.bat`. The first run sets up a private Python environment in `%LOCALAPPDATA%\GrantReportingAssistant` (about a minute) and opens the app at `http://127.0.0.1:8765/`.
+2. Double-click `start.bat`. The first run sets up a private Python environment in `%LOCALAPPDATA%\GrantReportingAssistant` (about a minute), adds a **Grant Reporting Assistant** shortcut to the desktop and the Start menu, and opens the app at `http://127.0.0.1:8765/`. From then on, start the app from that shortcut.
 3. Choose Anthropic (Claude) or OpenAI and paste your API key once; it is stored in Windows Credential Manager. Both keys can be saved, and Settings switches between them.
 4. Keep the black window open while using the app; close it to stop.
 
-To update, replace the program folder with the new version and run `start.bat`; it re-runs setup when needed, and saved runs and the API key are kept. To remove everything, use **Delete all saved runs** in Settings, delete the program folder and `%LOCALAPPDATA%\GrantReportingAssistant`, and remove the "GrantReportingAssistant" entry from Windows Credential Manager.
+If Windows shows "Windows protected your PC" the first time, choose **More info**, then **Run anyway**. If the folder is moved, run `start.bat` from its new place once and the shortcuts are updated.
+
+To update, replace the program folder with the new version and run `start.bat`; it re-runs setup when needed, and saved runs and the API key are kept. To remove everything, use **Delete all saved runs** in Settings, delete the program folder, the Grant Reporting Assistant shortcuts on the desktop and in the Start menu, and `%LOCALAPPDATA%\GrantReportingAssistant`, and remove the "GrantReportingAssistant" entry from Windows Credential Manager.
 
 Using the app:
 

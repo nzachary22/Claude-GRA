@@ -18,3 +18,11 @@ def test_release_contains_only_program_files():
 def test_version_matches_package():
     from gra import __version__
     assert build_release.version() == __version__
+
+
+def test_release_includes_shortcut_icon():
+    files = build_release.program_files()
+    assert "gra/static/icon.ico" in files
+    bat = (ROOT / "start.bat").read_text()
+    assert "gra\\static\\icon.ico" in bat and "Grant Reporting Assistant.lnk" in bat
+    assert (ROOT / "gra" / "static" / "icon.ico").read_bytes()[:4] == b"\x00\x00\x01\x00"
