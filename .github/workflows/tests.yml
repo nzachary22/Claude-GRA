@@ -1,0 +1,84 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+
+  mac-starter:
+    name: Mac starter and Keychain
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the release zip and unzip it the way a Mac user would
+        run: |
+          python tools/build_release.py
+          mkdir -p "$HOME/Documents/GRA test"
+          ditto -x -k dist/grant-reporting-assistant-*.zip "$HOME/Documents/GRA test"
+          ls -l "$HOME"/Documents/GRA\ test/*/start.command
+          test -x "$HOME"/Documents/GRA\ test/*/start.command
+      - name: First start runs setup, adds the app and serves the page
+        run: |
+          cd "$HOME"/Documents/GRA\ test/*/
+          ./start.command < /dev/null > "$RUNNER_TEMP/first.log" 2>&1 &
+          for i in $(seq 1 180); do
+            curl -sf http://127.0.0.1:8765/ | grep -q "<title>Grant Reporting Assistant</title>" && break
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/first.log"
+          curl -sf http://127.0.0.1:8765/api/status | tee /dev/stderr | grep -q '"version":"1.2.0"'
+          grep -q "Setting up" "$RUNNER_TEMP/first.log"
+          APP="$HOME/Applications/Grant Reporting Assistant.app"
+          test -d "$APP"
+          cmp "$APP/Contents/Resources/applet.icns" gra/static/icon.icns
+          codesign --verify --deep --strict "$APP"
+          test -d "$HOME/Library/Application Support/GrantReportingAssistant/venv"
+          pkill -f "gra.server"; sleep 2
+      - name: Second start skips setup
+        run: |
+          cd "$HOME"/Documents/GRA\ test/*/
+          ./start.command < /dev/null > "$RUNNER_TEMP/second.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8765/ >/dev/null && break
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/second.log"
+          curl -sf http://127.0.0.1:8765/ >/dev/null
+          ! grep -q "Setting up" "$RUNNER_TEMP/second.log"
+          pkill -f "gra.server"
+      - name: API keys are saved in and read back from the Mac Keychain
+        run: |
+          "$HOME/Library/Application Support/GrantReportingAssistant/venv/bin/python" - <<'PY'
+          import keyring
+          from gra import llm
+          print("backend:", type(keyring.get_keyring()).__module__)
+          assert type(keyring.get_keyring()).__module__.startswith("keyring.backends.macOS")
+          for provider in ("anthropic", "openai"):
+              llm.save_api_key(f"ci-test-{provider}", provider)
+              assert llm.get_api_key(provider) == f"ci-test-{provider}", provider
+              keyring.delete_password("GrantReportingAssistant", llm.PROVIDERS[provider]["keyring_user"])
+          print("Keychain save and read OK")
+          PY
