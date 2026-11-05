@@ -70,6 +70,7 @@ Reporting rules:
 - Apply the report's own definitions (eligibility, date rules, freeze or cut-off dates, precedence rules, missing-value categories) to the new period. Shift year-specific dates to the new period in the same way.
 - Where the report is silent or ambiguous, choose the most reasonable assumption grounded in the report, proceed, and record it with note_assumption (kind "assumption"), including how a user would change it in plain language.
 - Never invent missing facts, never silently drop records, and never treat unavailable information as zero. If a figure cannot be calculated from the data, bind its cell as a gap and record a note of kind "gap". Record anything that looks wrong (for example totals that do not reconcile) as kind "warning".
+- An amount summed over records that exist but whose amount field is blank on every one (for example wages recovered on closed cases with no wages entered): if the reference report shows 0 (or $0) for such a row, follow it and report 0 (for example with COALESCE(SUM(...), 0)), and record a note of kind "assumption" saying the amount field was blank on those records. If the report gives no such precedent, bind the cell as a gap with a note of kind "gap". This is the only case where blank amounts become zero.
 - Reconcile before submitting: check that detail rows add up to totals and that related tables describe the same population.
 - Keep notes short and written for a non-technical grant manager; no SQL in notes.
 
