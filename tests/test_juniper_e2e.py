@@ -25,13 +25,22 @@ ROOT = Path(__file__).resolve().parents[1] / "juniper-ridge-legal-aid-society"
 pytestmark = pytest.mark.skipif(not ROOT.exists(), reason="Juniper Ridge package not present")
 
 
-def run_year(tmp_path, year):
+def run_year(tmp_path, year, via="direct"):
     data = ROOT / "data" / str(year)
     db = tmp_path / f"j{year}.db"
     catalog = import_files(db, sorted(data.glob("*.csv")))
     gate = QueryGate(db, catalog)
     start, end = f"{year}-01-01", f"{year}-12-31"
-    model = ScriptedModel(juniper_script.steps(start, end, data))
+    steps = juniper_script.steps(start, end, data)
+    if via == "openai":  # the same analyst, but every request and reply goes through the OpenAI translation
+        from gra.llm_openai import OpenAIClient
+        from tests.test_openai import FakeOpenAI
+
+        fake = FakeOpenAI(steps)
+        model = OpenAIClient("test", client=fake)
+        model.seen_messages = fake.requests
+    else:
+        model = ScriptedModel(steps)
     blocks = to_blocks(ROOT / "report" / "juniper-ridge-grant-report-2025.pdf")
     session = ReportSession(gate, describe(db, catalog), blocks, (start, end), model)
     session.run()
@@ -52,9 +61,10 @@ def by_label(table):
     return {r.label: [c.value for c in r.cells] for r in table.rows if r.kind != "heading"}
 
 
+@pytest.mark.parametrize("via", ["direct", "openai"])
 @pytest.mark.parametrize("year", [2025, 2024, 2026])
-def test_tables_match_independent_calculation(tmp_path, year):
-    session, _ = run_year(tmp_path, year)
+def test_tables_match_independent_calculation(tmp_path, year, via):
+    session, _ = run_year(tmp_path, year, via)
     exp = expected(year)
     t1, t2, t3 = session.tables
     pop = session.gate.log[0].rows[0]
@@ -77,9 +87,10 @@ def test_tables_match_independent_calculation(tmp_path, year):
     assert rows3["Total"][-1] == exp["qualifying_cases"]
 
 
-def test_nothing_identifying_reaches_the_model(tmp_path):
-    session, model = run_year(tmp_path, 2025)
-    sent = json.dumps([m for call in model.seen_messages for m in call], default=str)
+@pytest.mark.parametrize("via", ["direct", "openai"])
+def test_nothing_identifying_reaches_the_model(tmp_path, via):
+    session, model = run_year(tmp_path, 2025, via)
+    sent = json.dumps(model.seen_messages, default=str)
     assert "JR25-CL-" not in sent and "JR25-CA-" not in sent and "JR25-DR-" not in sent
     import csv
     with open(ROOT / "data" / "2025" / "demographic_responses.csv", encoding="utf-8-sig") as f:

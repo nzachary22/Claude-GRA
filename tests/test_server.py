@@ -105,7 +105,7 @@ def test_cancel_mid_run(tmp_path, monkeypatch, tiny_files):
 
 
 def test_page_status_does_not_load_the_slow_ai_library():
-    code = "import sys, gra.server, gra.llm; gra.llm.get_api_key(); sys.exit('anthropic' in sys.modules)"
+    code = "import sys, gra.server, gra.llm; gra.llm.get_api_key(); sys.exit('anthropic' in sys.modules or 'openai' in sys.modules)"
     assert subprocess.run([sys.executable, "-c", code], timeout=120).returncode == 0
 
 
@@ -114,3 +114,34 @@ def test_out_of_credit_is_explained_in_plain_words():
 
     assert "out of API credit" in status_message(400, "Your credit balance is too low to access the Anthropic API.")
     assert status_message(500, "server trouble") == "The AI service returned an error (500)."
+
+
+def test_choosing_the_ai_service(tmp_path, monkeypatch):
+    import keyring
+
+    from gra import llm
+
+    monkeypatch.setenv("GRA_DATA_DIR", str(tmp_path / "appdata"))
+    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(llm, "_windows_user_env", lambda name: None)
+    store = {}
+    monkeypatch.setattr(keyring, "get_password", lambda s, u: store.get(u))
+    monkeypatch.setattr(keyring, "set_password", lambda s, u, k: store.__setitem__(u, k))
+    checked = []
+    monkeypatch.setattr(llm, "check_api_key", lambda key, provider="anthropic": checked.append(provider))
+    c = TestClient(create_app())
+
+    s = c.get("/api/status").json()
+    assert s["provider"] == "anthropic" and not s["has_key"] and s["keys"] == {"anthropic": False, "openai": False}
+    assert c.post("/api/provider", json={"provider": "openai"}).status_code == 400  # no key yet
+    assert c.post("/api/key", json={"key": "sk-proj-abcdefghijklmnopqrstuvwxyz", "provider": "openai"}).status_code == 200
+    assert checked == ["openai"] and store == {"openai_api_key": "sk-proj-abcdefghijklmnopqrstuvwxyz"}
+    s = c.get("/api/status").json()
+    assert s["provider"] == "openai" and s["has_key"]
+    assert c.post("/api/key", json={"key": "sk-ant-abcdefghijklmnopqrstuvwxyz"}).status_code == 200  # older page: Anthropic
+    assert c.get("/api/status").json()["provider"] == "anthropic"
+    assert c.post("/api/provider", json={"provider": "openai"}).status_code == 200
+    assert c.get("/api/status").json()["provider"] == "openai"
+    assert c.post("/api/provider", json={"provider": "gemini"}).status_code == 400
+    assert c.post("/api/key", json={"key": "sk-abcdefghijklmnopqrstuvwxyz", "provider": "x"}).status_code == 400

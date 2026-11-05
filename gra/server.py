@@ -41,6 +41,11 @@ KEEP_RUNS = 5
 
 class KeyIn(BaseModel):
     key: str
+    provider: str = "anthropic"
+
+
+class ProviderIn(BaseModel):
+    provider: str
 
 
 class CorrectionIn(BaseModel):
@@ -78,12 +83,9 @@ def create_app(model_factory=None) -> FastAPI:
         return response
 
     def default_factory():
-        from .llm import ClaudeClient, get_api_key
+        from .llm import make_client
 
-        key = get_api_key()
-        if not key:
-            raise RuntimeError("No AI key is set up yet. Add it under Settings.")
-        return ClaudeClient(key)
+        return make_client()
 
     factory = model_factory or default_factory
 
@@ -97,21 +99,40 @@ def create_app(model_factory=None) -> FastAPI:
 
     @app.get("/api/status")
     def status():
-        from .llm import get_api_key
+        from .llm import PROVIDERS, active_provider, key_status
 
-        return {"version": __version__, "has_key": model_factory is not None or bool(get_api_key())}
+        keys = key_status()
+        provider = active_provider()
+        return {"version": __version__, "provider": provider,
+                "has_key": model_factory is not None or keys[provider], "keys": keys,
+                "providers": [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items()]}
 
     @app.post("/api/key")
     def set_key(body: KeyIn):
-        from .llm import check_api_key, save_api_key
+        from .llm import PROVIDERS, check_api_key, save_api_key, set_provider
 
+        if body.provider not in PROVIDERS:
+            raise HTTPException(400, "Choose Anthropic or OpenAI.")
         key = body.key.strip()
         if not re.fullmatch(r"[A-Za-z0-9_\-]{20,300}", key):
             raise HTTPException(400, "That does not look like an API key.")
-        problem = check_api_key(key)
+        problem = check_api_key(key, body.provider)
         if problem:
             raise HTTPException(400, problem)
-        save_api_key(key)
+        save_api_key(key, body.provider)
+        set_provider(body.provider)  # a newly saved key means the user wants to use that service
+        return {"ok": True}
+
+    @app.post("/api/provider")
+    def choose_provider(body: ProviderIn):
+        """Switch to a service whose key is already saved. New reports use it; a running one keeps its own."""
+        from .llm import PROVIDERS, key_status, set_provider
+
+        if body.provider not in PROVIDERS:
+            raise HTTPException(400, "Choose Anthropic or OpenAI.")
+        if not key_status()[body.provider]:
+            raise HTTPException(400, f"Add a {PROVIDERS[body.provider]['label']} API key first.")
+        set_provider(body.provider)
         return {"ok": True}
 
     # ------------------------------------------------------------ runs
@@ -487,7 +508,10 @@ def main():
         return
     if state == "other":
         raise SystemExit(f"Another program is using port {port}. Close it, then start the app again.")
-    threading.Thread(target=lambda: __import__("anthropic"), daemon=True).start()
+    from .llm import active_provider
+
+    sdk = "openai" if active_provider() == "openai" else "anthropic"
+    threading.Thread(target=lambda: __import__(sdk), daemon=True).start()  # warm up the slow import
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 

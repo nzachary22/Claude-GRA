@@ -22,7 +22,8 @@ def plain(block):
         out = block.model_dump(exclude_none=True)
     else:
         out = {"type": type(block).__name__, "text": str(block)}
-    out = {k: v for k, v in out.items() if k != "signature"}
+    # Opaque replay data (signatures, OpenAI's encrypted reasoning and raw items) is not readable, so not recorded.
+    out = {k: v for k, v in out.items() if k not in ("signature", "provider_item")}
     source = out.get("source")
     if isinstance(source, dict) and source.get("type") == "base64":
         raw = base64.standard_b64decode(source.get("data", ""))
@@ -88,8 +89,17 @@ def _block_lines(b: dict) -> list[str]:
             lines.append(json.dumps(args, indent=1, ensure_ascii=False, default=str))
         return lines
     if kind == "thinking":
-        return ["[Claude's internal reasoning step; its text is not provided by the service]"]
+        return ["[The AI's internal reasoning step; its text is not provided by the service]"]
     return [json.dumps(b, ensure_ascii=False, default=str)]
+
+
+def service_names(start: dict) -> tuple[str, str]:
+    """The AI service a run used, and whose account terms apply. Runs before V.1.1 always used Claude."""
+    if start.get("provider") == "openai":
+        if start.get("stored") is False:
+            return "OpenAI (requests sent with storage turned off)", "OpenAI"
+        return "OpenAI", "OpenAI"
+    return "Anthropic Claude", "Anthropic"
 
 
 def render_text(events: list[dict], protected_hits: list[int], protected_checked: int, run_id: str = "") -> str:
@@ -102,11 +112,12 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
     refused = sum(bool(b.get("is_error")) for b in results)
     docs = [b for e in events if e["kind"] == "message" for b in e.get("content") or [] if b.get("type") in ("document", "image")]
     period = start.get("period") or ["", ""]
+    service, terms = service_names(start)
     out = [
         "GRANT REPORTING ASSISTANT: AI ACTIVITY LOG", "",
         f"Report run: {run_id}", f"Reporting period: {period[0]} to {period[1]}",
-        f"AI service: Anthropic Claude, requested model {start.get('model') or 'not recorded'}", f"Log created: {start.get('at', '')}", "",
-        "SUMMARY", f"Requests to Claude: {requests}", f"Queries Claude asked to run on this computer: {queries}",
+        f"AI service: {service}, requested model {start.get('model') or 'not recorded'}", f"Log created: {start.get('at', '')}", "",
+        "SUMMARY", f"Requests to the AI: {requests}", f"Queries the AI asked to run on this computer: {queries}",
         f"Results and tool replies sent back: {len(results)}, including {refused} refused or failed", "",
         "Uploaded files sent in full:",
     ]
@@ -120,7 +131,7 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
             "Covers text and results this app sent. Before sending, the text of uploaded reports was also checked for names and IDs from your data; images and scanned PDFs cannot be checked, so review them yourself.",
             "Values under 4 characters or made only of digits, and birth dates, are not checked because they match ordinary numbers and dates.",
             "", "LIMITS OF THIS LOG",
-            "It records what this app sent and received. It cannot show how the AI service stores or handles data; that depends on your Anthropic account terms.",
+            f"It records what this app sent and received. It cannot show how the AI service stores or handles data; that depends on your {terms} account terms.",
             "The API key and ordinary connection details also go to the service but are not recorded here.",
             "Each request resends the earlier messages in the conversation; each item appears once below.",
             "", "FULL RECORD", ""]
@@ -129,7 +140,7 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
         if e["kind"] == "run_start":
             continue
         if e["kind"] == "request":
-            out += [head + f"Request {e.get('number')} sent to Claude", ""]
+            out += [head + f"Request {e.get('number')} sent to the AI", ""]
         elif e["kind"] == "instructions":
             out += [head + "SENT: application instructions ---", e.get("text", ""), ""]
         elif e["kind"] == "tools":
@@ -140,7 +151,7 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
                 out += _block_lines(b)
             out.append("")
         elif e["kind"] == "response":
-            out.append(head + f"RECEIVED from {e.get('model') or 'Claude'} ---")
+            out.append(head + f"RECEIVED from {e.get('model') or 'the AI'} ---")
             for b in e.get("content") or []:
                 out += _block_lines(b)
             out.append("")
