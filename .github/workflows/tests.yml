@@ -82,3 +82,14 @@ jobs:
               keyring.delete_password("GrantReportingAssistant", llm.PROVIDERS[provider]["keyring_user"])
           print("Keychain save and read OK")
           PY
+      - name: The Applications app starts the app in Terminal
+        run: |
+          sleep 2
+          open "$HOME/Applications/Grant Reporting Assistant.app"
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8765/ | grep -q "<title>Grant Reporting Assistant</title>" && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8765/ | grep -q "<title>Grant Reporting Assistant</title>"
+          pgrep -fl "gra.server"
+          pkill -f "gra.server"
