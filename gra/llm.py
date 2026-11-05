@@ -18,7 +18,9 @@ from typing import Callable
 from .engine import Cancelled
 from .paths import app_data_dir
 
-MODEL = "claude-opus-5-5"
+# The one model each service uses, chosen from live tests on the sample organizations (2026-11-05).
+MODEL = "claude-sonnet-5-5"
+EFFORT = "high"
 # Models without Anthropic's server-side refusal fallback (it is rejected for them).
 _NO_SERVER_FALLBACK = ("claude-haiku",)
 _KEYRING_SERVICE = "GrantReportingAssistant"
@@ -103,28 +105,21 @@ def key_status() -> dict:
     return {name: _has_key(name) for name in PROVIDERS}
 
 
-def chosen_model(provider: str) -> str | None:
-    """A model picked for this service (GRA_MODEL, then settings.json "models"), or None for the default."""
-    env = os.environ.get("GRA_MODEL", "").strip()
-    if env:
-        return env
-    value = (_read_settings().get("models") or {}).get(_check_provider(provider))
-    return value.strip() if isinstance(value, str) and value.strip() else None
-
-
 def make_client(provider: str | None = None, model: str | None = None, effort: str | None = None):
     """A model client for the chosen service, or a plain-language error if no key is set up."""
     provider = _check_provider(provider or active_provider())
     key = get_api_key(provider)
     if not key:
         raise RuntimeError(f"No {PROVIDERS[provider]['label']} API key is set up yet. Add it under Settings.")
-    model = model or chosen_model(provider)
-    effort = effort or os.environ.get("GRA_EFFORT", "").strip() or "high"
+    # Tests and live evaluations may name another model or effort (also GRA_MODEL / GRA_EFFORT);
+    # users never choose one.
+    model = model or os.environ.get("GRA_MODEL", "").strip() or None
+    effort = effort or os.environ.get("GRA_EFFORT", "").strip() or None
     if provider == "openai":
-        from .llm_openai import MODEL as OPENAI_MODEL, OpenAIClient
+        from .llm_openai import EFFORT as OPENAI_EFFORT, MODEL as OPENAI_MODEL, OpenAIClient
 
-        return OpenAIClient(key, model or OPENAI_MODEL, effort)
-    return ClaudeClient(key, model or MODEL, effort)
+        return OpenAIClient(key, model or OPENAI_MODEL, effort or OPENAI_EFFORT)
+    return ClaudeClient(key, model or MODEL, effort or EFFORT)
 
 
 def _windows_user_env(name: str) -> str | None:
@@ -177,7 +172,7 @@ def status_message(code: int, detail: str) -> str:
 class ClaudeClient:
     provider = "anthropic"
 
-    def __init__(self, api_key: str, model: str = MODEL, effort: str = "high"):
+    def __init__(self, api_key: str, model: str = MODEL, effort: str = EFFORT):
         import anthropic
 
         self.client = anthropic.Anthropic(api_key=api_key, max_retries=4)

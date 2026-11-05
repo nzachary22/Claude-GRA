@@ -1,7 +1,8 @@
-"""Signs that a report run had trouble, found by the app without an answer key.
+"""Signs that a report run had trouble, found without an answer key (live evaluations only).
 
-Used to decide when a report should be run again on the stronger model. Each
-reason is a short plain-language line suitable for the activity report.
+Recorded by tests/live_eval.py to compare models. In the 2026-11-05 tests these signs
+caught crashes, gaps and warnings but missed most wrong figures, so the app does not
+use them to switch models.
 """
 
 from __future__ import annotations

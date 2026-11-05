@@ -155,7 +155,7 @@ def test_full_run_through_openai(tiny_db, tmp_path):
     assert "A1" in session.notes
 
     first, second = fake.requests
-    assert first["store"] is False and first["model"] == "gpt-6-astra" and first["reasoning"] == {"effort": "high"}
+    assert first["store"] is False and first["model"] == "gpt-6.1-sol" and first["reasoning"] == {"effort": "xhigh"}
     assert first["instructions"] == session_instructions()
     # The second request replays the reasoning item and the call before answering it, as the API requires.
     kinds = [i.get("type", i.get("role")) for i in second["input"]]
@@ -200,7 +200,7 @@ def test_activity_record_names_openai_and_leaves_out_encrypted_reasoning(tiny_db
     assert SECRET_REASONING not in raw
     events = read_events(tmp_path / "activity.jsonl")
     text = render_text(events, [], 0, "run1")
-    assert "AI service: OpenAI (requests sent with storage turned off), requested model gpt-6-astra" in text
+    assert "AI service: OpenAI (requests sent with storage turned off), requested model gpt-6.1-sol" in text
     assert "your OpenAI account terms" in text and "Anthropic" not in text
     assert "[The AI's internal reasoning step" in text
     # Everything that went to OpenAI is in the record the protected-value check reads.
@@ -324,7 +324,7 @@ def test_real_openai_library_sends_the_expected_request(tiny_db, tmp_path):
     import openai
 
     seen = []
-    response = {"id": "resp_1", "object": "response", "created_at": 0, "model": "gpt-6-astra", "status": "completed",
+    response = {"id": "resp_1", "object": "response", "created_at": 0, "model": "gpt-6.1-sol", "status": "completed",
                 "output": [{"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc"},
                            {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "submit_tables",
                             "arguments": json.dumps({"tables": [gender_table()]}), "status": "completed"}],

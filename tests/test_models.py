@@ -1,4 +1,4 @@
-"""Choosing a model other than each service's default."""
+"""Each service's one model, and the overrides used only by tests and live evaluations."""
 
 import json
 from types import SimpleNamespace
@@ -8,24 +8,24 @@ from gra.paths import app_data_dir
 from tests.live_eval import estimate_cost, track_usage
 
 
-def test_default_models_unchanged():
-    assert llm.make_client("anthropic").model == llm.MODEL
-    assert llm.make_client("openai").model == llm_openai.MODEL
+def test_one_model_per_service():
+    claude, openai = llm.make_client("anthropic"), llm.make_client("openai")
+    assert (claude.model, claude.effort) == ("claude-sonnet-5-5", "high")
+    assert (openai.model, openai.effort) == ("gpt-6.1-sol", "xhigh")
 
 
-def test_model_from_settings_and_environment(monkeypatch):
+def test_settings_file_cannot_change_the_model(monkeypatch):
     app_data_dir().mkdir(parents=True, exist_ok=True)
     (app_data_dir() / "settings.json").write_text(json.dumps({"models": {"anthropic": "claude-haiku-5-5"}}))
-    assert llm.make_client("anthropic").model == "claude-haiku-5-5"
-    assert llm.make_client("openai").model == llm_openai.MODEL
+    assert llm.make_client("anthropic").model == "claude-sonnet-5-5"
     monkeypatch.setenv("GRA_MODEL", "gpt-6-luna")
     assert llm.make_client("openai").model == "gpt-6-luna"
     assert llm.make_client("openai", "gpt-6.1-terra").model == "gpt-6.1-terra"
 
 
 def test_haiku_request_leaves_out_server_fallback():
-    opus = llm.ClaudeClient("k").request("s", [], [])
-    assert opus["fallbacks"] == "default" and opus["model"] == "claude-opus-5-5"
+    sonnet = llm.ClaudeClient("k").request("s", [], [])
+    assert sonnet["fallbacks"] == "default" and sonnet["model"] == "claude-sonnet-5-5"
     haiku = llm.ClaudeClient("k", "claude-haiku-5-5").request("s", [], [])
     assert "fallbacks" not in haiku and "betas" not in haiku
     assert haiku["thinking"] == {"type": "adaptive"} and haiku["output_config"] == {"effort": "high"}
@@ -52,7 +52,6 @@ def test_haiku_long_prompts_cost_more():
 
 
 def test_effort_override(monkeypatch):
-    assert llm.make_client("openai").effort == "high"
     assert llm.make_client("openai", "gpt-6-luna", "max").effort == "max"
     monkeypatch.setenv("GRA_EFFORT", "xhigh")
     assert llm.make_client("anthropic").effort == "xhigh"
@@ -60,7 +59,7 @@ def test_effort_override(monkeypatch):
 
 def test_step_up_reasons():
     from gra.engine import Note
-    from gra.stepup import trouble
+    from tests.stepup import trouble
     from gra.tables import Cell, Row, Table
 
     def table(total):

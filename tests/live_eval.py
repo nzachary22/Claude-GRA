@@ -25,7 +25,7 @@ from gra.importer import import_files
 from gra.llm import make_client
 from gra.paths import app_data_dir
 from gra.schema import describe
-from gra.stepup import trouble
+from tests.stepup import trouble
 from tests.test_juniper_e2e import ROOT, expected
 
 
