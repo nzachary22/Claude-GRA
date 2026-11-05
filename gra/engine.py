@@ -9,9 +9,11 @@ or when a query, turn or time limit is reached.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Callable, Protocol
 
 from .activity import ActivityLog, plain
@@ -78,6 +80,7 @@ Submitting tables:
 - Set display formats to match the report: "format" of number, percent or currency, plus "decimals", on a column, a row or a single cell (cell wins over row, row over column). Percent values are on a 0-100 scale. If the report shows 31.6% and $2,531,174, use percent with 1 decimal and currency with 0.
 - If the report's table has a header above its row labels (for example "Age at intake"), put it in "row_header".
 - Pass "report" with the organization name and report title as printed on the report, and a "subtitle" for its descriptive line if it has one, using the current period.
+- The current reporting period is set by the user. Only if the user's correction asks for a different period, pass the new one in "report"."period" as {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}, so the document heading, file names and activity report show it. Otherwise leave "period" out.
 - If the report has a section defining what the figures count (for example "What the figures count", "Reporting definitions" or a methodology page), reproduce it in "report"."definitions" as headed paragraphs, adapted to the current period (shifted dates, the new period). Definitions state rules, never results: do not put a calculated count or total in them. If a table, subtitle or note refers the reader to the definitions, include them.
 - Only carry over statements about the data that the current data or the report's definitions support. A claim about how the data was recorded (for example who is counted in a category) that the data cannot confirm is either dropped or worded as the report's definition ("As defined in the report, ...").
 - If an uploaded document says the data is for practice, testing or demonstration only, that no report should be produced from it, or otherwise limits its use, record a "warning" note quoting that limit, so the user sees it beside the tables.
@@ -129,6 +132,13 @@ TOOLS = [
                         "organization": {"type": "string"},
                         "title": {"type": "string"},
                         "subtitle": {"type": "string"},
+                        "period": {
+                            "type": "object",
+                            "description": "Only when the user's correction changed the reporting period: the new period, inclusive.",
+                            "properties": {"start": {"type": "string", "description": "YYYY-MM-DD"},
+                                           "end": {"type": "string", "description": "YYYY-MM-DD"}},
+                            "required": ["start", "end"],
+                        },
                         "definitions": {
                             "type": "array",
                             "description": "The report's definitions of what the figures count, adapted to the current period. Rules only, no calculated figures.",
@@ -212,6 +222,8 @@ class ReportSession:
     def correct(self, instruction: str):
         """Apply a user's plain-language correction and recalculate affected tables."""
         text = (f"The user reviewed the draft tables and asks for this correction:\n\n{instruction.strip()}\n\n"
+                f"The current reporting period is {self.period[0]} to {self.period[1]}. If this correction changes "
+                "it, pass the new period in report.period. "
                 "Apply it, re-run only the queries it affects, update or remove the related notes, and "
                 "submit the complete set of tables again with submit_tables.")
         self.messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
@@ -229,6 +241,7 @@ class ReportSession:
                 "tables": [t.to_dict() for t in self.tables],
                 "notes": [n.to_dict() for n in self.notes.values()],
                 "report": dict(self.report),
+                "period": list(self.period),
                 "queries_used": self.queries_used,
             }
 
@@ -376,8 +389,17 @@ class ReportSession:
             self._emit("status", "Checking the draft tables and fixing problems")
             return "Not accepted. Fix these problems and submit again:\n- " + "\n- ".join(e.problems[:60]), True, False
         report = args.get("report")
+        period = report.get("period") if isinstance(report, dict) else None
+        if period is not None:
+            period, problem = _period(period)
+            if problem:
+                return f"Not accepted. Fix this problem and submit again:\n- {problem}", True, False
+        period_changed = bool(period and tuple(period) != tuple(self.period))
         with self._lock:
             self.tables = tables
+            if period_changed:
+                self.activity.add("period_changed", "local", period=list(period), previous=list(self.period))
+                self.period = period
             if isinstance(report, dict):
                 self.report = {k: str(report[k])[:300] for k in ("organization", "title", "subtitle") if report.get(k)}
                 defs = _definitions(report.get("definitions"))
@@ -385,8 +407,25 @@ class ReportSession:
                     self.report["definitions"] = defs
         summary = [{"id": t.id, "title": t.title, "rows": len(t.rows),
                     "gaps": sum(1 for r in t.rows for c in r.cells if c.gap)} for t in tables]
+        if period_changed:
+            self._emit("status", f"Reporting period changed to {self.period[0]} to {self.period[1]}")
         self._emit("tables", f"Assembled {len(tables)} table(s)")
         return "Accepted. Tables are final: " + json.dumps(summary), False, True
+
+
+def _period(value) -> tuple[tuple[str, str] | None, str | None]:
+    """A reporting period from a submission, or the problem with it."""
+    if not isinstance(value, dict):
+        return None, 'report.period must be {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}.'
+    start, end = str(value.get("start") or ""), str(value.get("end") or "")
+    try:
+        if date.fromisoformat(start) > date.fromisoformat(end):
+            return None, "report.period ends before it starts."
+    except ValueError:
+        return None, 'report.period must be {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"} with real dates.'
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+        return None, "report.period dates must be written as YYYY-MM-DD."
+    return (start, end), None
 
 
 def _definitions(value) -> list[dict]:

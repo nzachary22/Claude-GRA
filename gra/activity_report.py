@@ -189,6 +189,11 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
     review = [p.number for p in packets if p.status == REVIEW]
     start = next((e for e in events if e["kind"] == "run_start"), {})
     period = start.get("period") or ["", ""]
+    period_text = f"Reporting period {period[0]} to {period[1]}"
+    changed = [e for e in events if e["kind"] == "period_changed"]
+    if changed:
+        new = changed[-1]["period"]
+        period_text = f"Reporting period {new[0]} to {new[1]} (changed by a correction from {period[0]} to {period[1]})"
     name = _report_name(events)
 
     doc = Document()
@@ -203,7 +208,7 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
     style.font.size = Pt(11)
 
     doc.add_heading("What Was Sent to the AI", level=0)
-    doc.add_paragraph(" · ".join(x for x in (name, f"Reporting period {period[0]} to {period[1]}",
+    doc.add_paragraph(" · ".join(x for x in (name, period_text,
                                              f"AI service: {service_names(start)[0]}") if x))
 
     doc.add_heading("Summary", level=1)

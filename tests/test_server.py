@@ -157,3 +157,34 @@ def test_settings_open_once_for_people_upgrading(tmp_path, monkeypatch):
 
     llm.set_provider("openai")  # other settings are kept
     assert llm.settings_seen() and llm.saved_provider() == "openai"
+
+
+def test_period_changed_by_a_correction_reaches_exports(tiny_files, tmp_path, monkeypatch):
+    import io
+
+    import docx
+
+    monkeypatch.setenv("GRA_DATA_DIR", str(tmp_path / "appdata"))
+
+    def factory():
+        return ScriptedModel([
+            [("run_query", {"sql": GENDER_SQL, "purpose": "Counting clients by gender"})],
+            [("submit_tables", {"tables": [gender_table()]})],
+            [("submit_tables", {"report": {"period": {"start": "2025-01-01", "end": "2025-06-30"}},
+                                "tables": [gender_table()]})],
+        ])
+    client = TestClient(create_app(factory))
+    run_id = start(client, tiny_files, tmp_path)
+    assert wait(client, run_id)["period"] == ["2025-01-01", "2025-12-31"]
+    assert client.post(f"/api/runs/{run_id}/correct", json={"text": "First half only"}).status_code == 200
+    r = wait(client, run_id)
+    assert r["status"] == "done" and r["period"] == ["2025-01-01", "2025-06-30"]
+    res = client.get(f"/api/runs/{run_id}/export.docx")
+    assert 'grant-report-tables-20250630.docx' in res.headers["content-disposition"]
+    text = "\n".join(p.text for p in docx.Document(io.BytesIO(res.content)).paragraphs)
+    assert "Reporting period: 2025-01-01 to 2025-06-30." in text and "2025-12-31" not in text
+    report = client.get(f"/api/runs/{run_id}/activity-report")
+    head = "\n".join(p.text for p in docx.Document(io.BytesIO(report.content)).paragraphs[:3])
+    assert "Reporting period 2025-01-01 to 2025-06-30 (changed by a correction from 2025-01-01 to 2025-12-31)" in head
+    log = client.get(f"/api/runs/{run_id}/activity-log").text
+    assert "Reporting period: 2025-01-01 to 2025-06-30" in log and "changed by a correction" in log

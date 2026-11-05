@@ -67,6 +67,11 @@ class Run:
     cancel_requested: bool = False
     schema_text: str = ""
 
+    @property
+    def current_period(self) -> tuple[str, str]:
+        """The period the tables cover: as entered, unless a correction changed it."""
+        return tuple(self.session.period) if self.session else self.period
+
 
 def create_app(model_factory=None) -> FastAPI:
     """model_factory() returns a model client; tests pass a scripted one."""
@@ -191,7 +196,7 @@ def create_app(model_factory=None) -> FastAPI:
         status = run.status if run.session is None else _merge_status(run, snap["status"])
         return {
             "id": run.id, "status": status, "error": run.error or snap.get("error"),
-            "period": run.period, "report_files": run.report_names, "data_files": run.data_names,
+            "period": list(run.current_period), "report_files": run.report_names, "data_files": run.data_names,
             "import_summary": run.import_summary,
             "events": events[since:], "event_count": len(events),
             "tables": snap["tables"], "notes": snap["notes"], "report": snap["report"], "queries_used": snap["queries_used"],
@@ -316,8 +321,9 @@ def create_app(model_factory=None) -> FastAPI:
             raise HTTPException(409, "There are no tables to export yet.")
         tables, notes = run.session.tables, list(run.session.notes.values())
         title = "Grant report tables"
-        period = f"{run.period[0]} to {run.period[1]}"
-        stamp = run.period[1].replace("-", "")
+        start, end = run.current_period
+        period = f"{start} to {end}"
+        stamp = end.replace("-", "")
         if fmt == "docx":
             data = to_docx(tables, notes, title, period, run.session.report)
             media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
