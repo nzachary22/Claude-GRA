@@ -393,6 +393,10 @@ class QueryGate:
             rows = cur.fetchmany(self.max_rows + 1)
         except sqlite3.Error as e:
             raise QueryRefused(_safe_sqlite_error(e)) from None
+        except MemoryError:
+            # SQLite reports running out of memory this way (for example a join that multiplies rows).
+            raise QueryRefused("The query needed more memory than is available. Simplify it: join on keys, "
+                               "filter earlier, or aggregate in steps.") from None
         finally:
             conn.close()
         if len(rows) > self.max_rows:
