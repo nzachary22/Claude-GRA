@@ -56,13 +56,21 @@
   async function checkStatus() {
     const s = await api("/api/status");
     state.status = s;
-    $("setup").hidden = s.has_key;
+    const firstLook = s.show_settings && !state.settingsShown;
+    if (firstLook) {
+      state.settingsShown = true;
+      $("setup").hidden = false;
+      $("whats-new").hidden = !s.has_key;  // only for people who already had a key
+      api("/api/settings-seen", { method: "POST" }).catch(() => {});
+    } else if (!state.settingsShown || !s.has_key) {
+      $("setup").hidden = s.has_key;
+    }
     const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
     if (radio && !state.providerTouched) radio.checked = true;
     showProvider(s);
     return s;
   }
-  $("settings-btn").onclick = () => { $("setup").hidden = !$("setup").hidden; };
+  $("settings-btn").onclick = () => { $("setup").hidden = !$("setup").hidden; $("whats-new").hidden = true; };
   $("providers").onchange = async () => {
     state.providerTouched = true;
     showProvider(state.status);
