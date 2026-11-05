@@ -1,5 +1,5 @@
 #!/bin/bash
-# Grant Reporting Assistant V.1.2 for Mac - starts the local app and opens the browser.
+# Grant Reporting Assistant V.1.3 for Mac - starts the local app and opens the browser.
 # Double-click this file in Finder. Setup runs on first use, and again whenever
 # this folder moves or a new version changes the requirements. The Python
 # environment lives outside this folder, in ~/Library/Application Support.

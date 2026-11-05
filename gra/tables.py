@@ -118,6 +118,11 @@ def resolve_tables(specs: list[dict], results: dict[str, "object"]) -> list[Tabl
         except TableSpecError as e:
             label = spec.get("id", f"#{i + 1}") if isinstance(spec, dict) else f"#{i + 1}"
             problems.extend(f"table {label}: {p}" for p in e.problems)
+        except (TypeError, ValueError, KeyError, AttributeError, IndexError) as e:
+            # A malformed spec must come back to the AI to fix, never end the run.
+            label = spec.get("id", f"#{i + 1}") if isinstance(spec, dict) else f"#{i + 1}"
+            problems.append(f"table {label}: the table could not be read ({type(e).__name__}: {e}); "
+                            "check that every binding uses the documented shape")
     if problems:
         raise TableSpecError(problems)
     return tables
@@ -262,10 +267,14 @@ def _resolve_cell(cs, results, column) -> Cell:
     if "query" not in cs:
         raise TableSpecError(["cell must have query, gap or text"])
     qid = cs["query"]
+    if not isinstance(qid, str):
+        raise TableSpecError([f"query must be a query id such as \"Q3\", not {qid!r}"])
     result = results.get(qid)
     if result is None:
         raise TableSpecError([f"unknown query id {qid}"])
     col_name = cs.get("column")
+    if col_name is not None and not isinstance(col_name, str):
+        raise TableSpecError([f"{qid}: column must be a column name, not {col_name!r}"])
     if col_name not in result.columns:
         if col_name is None and len(result.columns) == 1:
             col_name = result.columns[0]
@@ -273,6 +282,8 @@ def _resolve_cell(cs, results, column) -> Cell:
             raise TableSpecError([f"{qid} has no column {col_name!r} (columns: {result.columns})"])
     ci = result.columns.index(col_name)
     match = cs.get("match") or {}
+    if not isinstance(match, dict):
+        raise TableSpecError([f"{qid}: match must be an object of column: value pairs, not {match!r}"])
     for k in match:
         if k not in result.columns:
             raise TableSpecError([f"{qid} has no column {k!r} to match on"])

@@ -18,7 +18,11 @@ from typing import Callable
 from .engine import Cancelled
 from .paths import app_data_dir
 
-MODEL = "claude-opus-5-5"
+# The one model each service uses, chosen from live tests on the sample organizations (2026-11-05).
+MODEL = "claude-sonnet-5-5"
+EFFORT = "high"
+# Models without Anthropic's server-side refusal fallback (it is rejected for them).
+_NO_SERVER_FALLBACK = ("claude-haiku",)
 _KEYRING_SERVICE = "GrantReportingAssistant"
 PROVIDERS = {
     "anthropic": {"label": "Anthropic Claude", "env": "ANTHROPIC_API_KEY", "keyring_user": "anthropic_api_key",
@@ -101,17 +105,21 @@ def key_status() -> dict:
     return {name: _has_key(name) for name in PROVIDERS}
 
 
-def make_client(provider: str | None = None):
+def make_client(provider: str | None = None, model: str | None = None, effort: str | None = None):
     """A model client for the chosen service, or a plain-language error if no key is set up."""
     provider = _check_provider(provider or active_provider())
     key = get_api_key(provider)
     if not key:
         raise RuntimeError(f"No {PROVIDERS[provider]['label']} API key is set up yet. Add it under Settings.")
+    # Tests and live evaluations may name another model or effort (also GRA_MODEL / GRA_EFFORT);
+    # users never choose one.
+    model = model or os.environ.get("GRA_MODEL", "").strip() or None
+    effort = effort or os.environ.get("GRA_EFFORT", "").strip() or None
     if provider == "openai":
-        from .llm_openai import OpenAIClient
+        from .llm_openai import EFFORT as OPENAI_EFFORT, MODEL as OPENAI_MODEL, OpenAIClient
 
-        return OpenAIClient(key)
-    return ClaudeClient(key)
+        return OpenAIClient(key, model or OPENAI_MODEL, effort or OPENAI_EFFORT)
+    return ClaudeClient(key, model or MODEL, effort or EFFORT)
 
 
 def _windows_user_env(name: str) -> str | None:
@@ -164,29 +172,26 @@ def status_message(code: int, detail: str) -> str:
 class ClaudeClient:
     provider = "anthropic"
 
-    def __init__(self, api_key: str, model: str = MODEL, effort: str = "high"):
+    def __init__(self, api_key: str, model: str = MODEL, effort: str = EFFORT):
         import anthropic
 
         self.client = anthropic.Anthropic(api_key=api_key, max_retries=4)
         self.model = model
         self.effort = effort
 
+    def request(self, system: str, messages: list, tools: list) -> dict:
+        params = dict(model=self.model, max_tokens=64000, system=system, messages=messages, tools=tools,
+                      thinking={"type": "adaptive"}, output_config={"effort": self.effort},
+                      cache_control={"type": "ephemeral"})
+        if not self.model.startswith(_NO_SERVER_FALLBACK):
+            params.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+        return params
+
     def respond(self, system: str, messages: list, tools: list, should_cancel: Callable[[], bool]):
         import anthropic
 
         try:
-            with self.client.beta.messages.stream(
-                model=self.model,
-                max_tokens=64000,
-                system=system,
-                messages=messages,
-                tools=tools,
-                thinking={"type": "adaptive"},
-                output_config={"effort": self.effort},
-                cache_control={"type": "ephemeral"},
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
-            ) as stream:
+            with self.client.beta.messages.stream(**self.request(system, messages, tools)) as stream:
                 for _ in stream:
                     if should_cancel():
                         raise Cancelled()

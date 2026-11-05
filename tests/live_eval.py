@@ -2,6 +2,8 @@
 
     python -m tests.live_eval 2025            (the service chosen in Settings; costs API credit)
     python -m tests.live_eval 2025 openai     (or anthropic, to pick the service)
+    python -m tests.live_eval 2025 anthropic claude-haiku-5-5   (and a model other than the default)
+    python -m tests.live_eval 2025 openai gpt-6-luna max         (and a reasoning effort other than high)
 
 The AI chooses its own labels, so cells are matched to the expected figures by
 normalized row label and column header. Results and a progress log are saved in
@@ -23,6 +25,7 @@ from gra.importer import import_files
 from gra.llm import make_client
 from gra.paths import app_data_dir
 from gra.schema import describe
+from tests.stepup import trouble
 from tests.test_juniper_e2e import ROOT, expected
 
 
@@ -80,7 +83,52 @@ def _gender_any(tables, header):
     return "missing"
 
 
-def main(year: int, provider: str | None = None):
+# USD per million tokens: input, cache read, cache write, output (checked 2026-11-05).
+# Claude Haiku 5.5 is $0.10/$0.50 only while a request's prompt is 100K tokens or fewer; above that $0.50/$2.50.
+PRICES = {
+    "claude-opus-5-5": (4.00, 0.20, 5.00, 20.00),
+    "claude-sonnet-5-5": (2.00, 0.20, 2.50, 10.00),
+    "claude-haiku-5-5": (0.10, 0.01, 0.125, 0.50),
+    "gpt-6-astra": (10.00, 1.00, 0, 50.00),
+    "gpt-6.1-sol": (2.00, 0.20, 0, 10.00),
+    "gpt-6.1-terra": (1.00, 0.10, 0, 5.00),
+    "gpt-6-luna": (0.10, 0.01, 0, 0.50),
+}
+HAIKU_LONG = (0.50, 0.05, 0.625, 2.50)
+FIELDS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
+
+
+def track_usage(model):
+    """Wrap model.respond so every request's token counts are kept on model.usage_log."""
+    model.usage_log = []
+    respond = model.respond
+
+    def wrapped(*args, **kwargs):
+        response = respond(*args, **kwargs)
+        u = getattr(response, "usage", None)
+        u = u if isinstance(u, dict) else (u.model_dump() if hasattr(u, "model_dump") else {})
+        model.usage_log.append({k: int(u.get(k) or 0) for k in FIELDS})
+        return response
+
+    model.respond = wrapped
+
+
+def estimate_cost(model_id: str, usage_log: list) -> dict:
+    totals = {k: sum(u[k] for u in usage_log) for k in FIELDS}
+    price = PRICES.get(model_id)
+    if price is None:
+        return {**totals, "requests": len(usage_log), "usd": None}
+    usd = 0.0
+    for u in usage_log:
+        p = price
+        if model_id.startswith("claude-haiku") and u["input_tokens"] + u["cache_read_input_tokens"] + u["cache_creation_input_tokens"] > 100_000:
+            p = HAIKU_LONG
+        usd += (u["input_tokens"] * p[0] + u["cache_read_input_tokens"] * p[1] + u["cache_creation_input_tokens"] * p[2]
+                + u["output_tokens"] * p[3]) / 1e6
+    return {**totals, "requests": len(usage_log), "usd": round(usd, 4)}
+
+
+def main(year: int, provider: str | None = None, model_id: str | None = None, effort: str | None = None):
     data = ROOT / "data" / str(year)
     out = app_data_dir() / "evals" / time.strftime(f"juniper-{year}-%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
@@ -88,9 +136,10 @@ def main(year: int, provider: str | None = None):
     catalog = import_files(db, sorted(data.glob("*.csv")))
     gate = QueryGate(db, catalog)
     try:
-        model = make_client(provider)
+        model = make_client(provider, model_id, effort)
     except RuntimeError as e:
         sys.exit(str(e))
+    track_usage(model)
     session = ReportSession(gate, describe(db, catalog), to_blocks(ROOT / "report" / "juniper-ridge-grant-report-2025.pdf"),
                             (f"{year}-01-01", f"{year}-12-31"), model)
     start = time.time()
@@ -104,6 +153,8 @@ def main(year: int, provider: str | None = None):
         "year": year, "provider": model.provider, "model": model.model, "status": session.status, "error": session.error, "seconds": round(elapsed),
         "queries_run": session.queries_used, "refused": sum(1 for e in session.events if e.kind == "refused"),
         "tables": [t.title for t in session.tables], "cells_checked": len(checks), "cells_matching": ok,
+        "effort": model.effort, "step_up_reasons": trouble(session),
+        "cost": estimate_cost(model.model, model.usage_log),
         "mismatches": [c for c in checks if c[3] != c[4]][:80],
         "notes": [n.to_dict() for n in session.notes.values()],
         "events": [e.__dict__ for e in session.events],
@@ -113,9 +164,10 @@ def main(year: int, provider: str | None = None):
     (out / "queries.json").write_text(json.dumps([{"id": q.query_id, "purpose": q.purpose, "sql": q.sql, "columns": q.columns,
                                                    "rows": q.rows} for q in gate.log], indent=2, default=str), encoding="utf-8")
     print(json.dumps({k: summary[k] for k in ("year", "provider", "model", "status", "error", "seconds", "queries_run", "refused",
-                                              "tables", "cells_checked", "cells_matching")}, indent=2))
+                                              "tables", "cells_checked", "cells_matching", "effort", "step_up_reasons", "cost")}, indent=2))
     print("saved to", out)
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else 2025, sys.argv[2] if len(sys.argv) > 2 else None)
+    main(int(sys.argv[1]) if len(sys.argv) > 1 else 2025, sys.argv[2] if len(sys.argv) > 2 else None,
+         sys.argv[3] if len(sys.argv) > 3 else None, sys.argv[4] if len(sys.argv) > 4 else None)

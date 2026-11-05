@@ -142,3 +142,24 @@ def test_database_is_never_modified(gate, tiny_db):
         except QueryRefused:
             pass
     assert db.read_bytes() == before
+
+
+def test_out_of_memory_is_refused_not_a_crash(gate, monkeypatch):
+    real = gate._connect
+
+    class Conn:
+        def __init__(self):
+            self.c = real()
+
+        def execute(self, sql):
+            raise MemoryError()
+
+        def set_progress_handler(self, *a):
+            pass
+
+        def close(self):
+            self.c.close()
+
+    monkeypatch.setattr(gate, "_connect", Conn)
+    with pytest.raises(QueryRefused, match="more memory"):
+        gate.run("SELECT COUNT(*) AS n FROM cases")

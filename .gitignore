@@ -46,3 +46,6 @@ desktop.ini
 
 # Local tool settings
 .claude/
+
+# Local sample packages and test results (kept out of git)
+Fictional Grant Reporting Examples/

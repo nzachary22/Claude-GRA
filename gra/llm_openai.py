@@ -20,7 +20,8 @@ from typing import Callable
 
 from .engine import Cancelled
 
-MODEL = "gpt-6-astra"
+MODEL = "gpt-6.1-sol"
+EFFORT = "xhigh"  # "very high"; at high it sometimes left a $0 figure blank in testing
 MAX_OUTPUT_TOKENS = 64000
 # Kept on a block for replay; the activity record leaves it out (see activity.plain).
 ITEM = "provider_item"
@@ -124,7 +125,15 @@ def from_response(response) -> SimpleNamespace:
         stop = "tool_use"
     else:
         stop = "end_turn"
-    return SimpleNamespace(content=blocks, stop_reason=stop, model=_get(response, "model"))
+    return SimpleNamespace(content=blocks, stop_reason=stop, model=_get(response, "model"), usage=_usage(response))
+
+
+def _usage(response) -> dict:
+    """Token counts in the Anthropic shape (cached input counted separately), for cost estimates."""
+    u = _dump(_get(response, "usage") or {})
+    cached = (u.get("input_tokens_details") or {}).get("cached_tokens") or 0
+    return {"input_tokens": (u.get("input_tokens") or 0) - cached, "cache_read_input_tokens": cached,
+            "cache_creation_input_tokens": 0, "output_tokens": u.get("output_tokens") or 0}
 
 
 def _get(obj, key):
@@ -187,7 +196,7 @@ class OpenAIClient:
     provider = "openai"
     stored = False  # every request is sent with store=false
 
-    def __init__(self, api_key: str, model: str = MODEL, effort: str = "high", client=None):
+    def __init__(self, api_key: str, model: str = MODEL, effort: str = EFFORT, client=None):
         if client is None:
             import openai
 
