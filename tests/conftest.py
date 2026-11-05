@@ -2,11 +2,34 @@
 
 import csv
 import json
+import os
 from pathlib import Path
 
 import pytest
 
-from gra.importer import import_files
+# Set before anything imports keyring, which picks its backend once on import.
+# Child processes inherit it, so no test can reach the real credential store.
+os.environ["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
+
+from gra.importer import import_files  # noqa: E402
+
+PLACEHOLDER_KEY = "placeholder-not-a-real-key"
+
+
+@pytest.fixture(autouse=True)
+def isolate_from_real_app(tmp_path_factory, monkeypatch):
+    """Keep every test away from the real app-data folder and the real API keys.
+
+    Tests can run while the app is in use on the same computer. A placeholder key
+    in the environment means get_api_key never looks in the Windows registry or
+    the credential store. Tests of the key logic remove it and supply their own.
+    """
+    base = tmp_path_factory.mktemp("isolated")
+    monkeypatch.setenv("GRA_DATA_DIR", str(base / "appdata"))
+    monkeypatch.setenv("LOCALAPPDATA", str(base / "localappdata"))
+    monkeypatch.setenv("HOME", str(base / "home"))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", PLACEHOLDER_KEY)
+    monkeypatch.setenv("OPENAI_API_KEY", PLACEHOLDER_KEY)
 
 
 def write_csv(path: Path, header, rows):
