@@ -56,21 +56,17 @@
   async function checkStatus() {
     const s = await api("/api/status");
     state.status = s;
-    const firstLook = s.show_settings && !state.settingsShown;
-    if (firstLook) {
-      state.settingsShown = true;
-      $("setup").hidden = false;
-      $("whats-new").hidden = !s.has_key;  // only for people who already had a key
-      api("/api/settings-seen", { method: "POST" }).catch(() => {});
-    } else if (!state.settingsShown || !s.has_key) {
-      $("setup").hidden = s.has_key;
-    }
+    if (!s.has_key) $("setup").hidden = false;  // a panel the user opened stays open
+    $("setup-title").textContent = s.has_key ? "Settings" : "One-time setup";
+    $("setup-close").hidden = !s.has_key;
     const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
     if (radio && !state.providerTouched) radio.checked = true;
     showProvider(s);
     return s;
   }
-  $("settings-btn").onclick = () => { $("setup").hidden = !$("setup").hidden; $("whats-new").hidden = true; };
+  const closeSetup = () => { $("setup").hidden = true; $("whats-new").hidden = true; };
+  $("settings-btn").onclick = () => { if ($("setup").hidden) $("setup").hidden = false; else closeSetup(); };
+  $("setup-close").onclick = closeSetup;
   $("providers").onchange = async () => {
     state.providerTouched = true;
     showProvider(state.status);
@@ -97,7 +93,7 @@
       await checkStatus();
       $("setup").hidden = false;
       msg("key-msg", `Saved. New reports will use ${p === "openai" ? "OpenAI" : "Anthropic Claude"}.`, "ok");
-      setTimeout(() => { $("setup").hidden = true; }, 1200);
+      setTimeout(closeSetup, 1200);
     } catch (err) { msg("key-msg", err.message, "err"); }
   };
 
@@ -146,6 +142,7 @@
     msg("upload-msg", "Uploading…");
     const s = await checkStatus();
     if (!s.has_key) { msg("upload-msg", "Add your API key above first.", "err"); $("start").disabled = false; return; }
+    closeSetup();
     const form = new FormData();
     state.reportFiles.forEach((f) => form.append("report_files", f));
     state.dataFiles.forEach((f) => form.append("data_files", f));
@@ -352,8 +349,13 @@
     } catch (err) { $("tech-body").textContent = err.message; }
   };
 
-  checkStatus().catch(() => {});
   // Reopening or refreshing the page returns to the same report run.
   const m = location.hash.match(/run=([a-f0-9]+)/);
+  checkStatus().then((s) => {
+    if (!s.show_settings || m) return;  // never over a report in progress; it waits for the next start
+    $("setup").hidden = false;  // once, so people who already have a key see the choice of AI service
+    $("whats-new").hidden = !s.has_key;
+    api("/api/settings-seen", { method: "POST" }).catch(() => {});
+  }).catch(() => {});
   if (m) startPolling(m[1]);
 })();
