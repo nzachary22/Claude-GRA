@@ -145,3 +145,15 @@ def test_choosing_the_ai_service(tmp_path, monkeypatch):
     assert c.get("/api/status").json()["provider"] == "openai"
     assert c.post("/api/provider", json={"provider": "gemini"}).status_code == 400
     assert c.post("/api/key", json={"key": "sk-abcdefghijklmnopqrstuvwxyz", "provider": "x"}).status_code == 400
+
+
+def test_settings_open_once_for_people_upgrading(tmp_path, monkeypatch):
+    monkeypatch.setenv("GRA_DATA_DIR", str(tmp_path / "appdata"))
+    c = TestClient(create_app())
+    assert c.get("/api/status").json()["show_settings"] is True
+    assert c.post("/api/settings-seen").status_code == 200
+    assert c.get("/api/status").json()["show_settings"] is False
+    from gra import llm
+
+    llm.set_provider("openai")  # other settings are kept
+    assert llm.settings_seen() and llm.saved_provider() == "openai"

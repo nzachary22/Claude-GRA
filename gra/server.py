@@ -99,12 +99,14 @@ def create_app(model_factory=None) -> FastAPI:
 
     @app.get("/api/status")
     def status():
-        from .llm import PROVIDERS, active_provider, key_status
+        from .llm import PROVIDERS, active_provider, key_status, settings_seen
 
         keys = key_status()
         provider = active_provider()
         return {"version": __version__, "provider": provider,
                 "has_key": model_factory is not None or keys[provider], "keys": keys,
+                # Open Settings once, so people upgrading with a saved key see the choice of AI service.
+                "show_settings": model_factory is None and not settings_seen(),
                 "providers": [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items()]}
 
     @app.post("/api/key")
@@ -121,6 +123,13 @@ def create_app(model_factory=None) -> FastAPI:
             raise HTTPException(400, problem)
         save_api_key(key, body.provider)
         set_provider(body.provider)  # a newly saved key means the user wants to use that service
+        return {"ok": True}
+
+    @app.post("/api/settings-seen")
+    def settings_were_seen():
+        from .llm import mark_settings_seen
+
+        mark_settings_seen()
         return {"ok": True}
 
     @app.post("/api/provider")
