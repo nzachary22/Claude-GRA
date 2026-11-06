@@ -124,3 +124,6 @@ table.report td[title] { cursor: help; }
 .key-notes .note { border-left-color: var(--accent); }
 .more-list { margin: 0; padding-left: 18px; }
 .more-list li { margin: 4px 0; }
+.sample-line { margin: 10px 0 0; font-size: 14px; }
+.sample-line .link { padding: 0; }
+.estimate { font-size: 13px; margin: 6px 0 0; }

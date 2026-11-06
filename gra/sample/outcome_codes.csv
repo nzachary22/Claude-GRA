@@ -1,0 +1,11 @@
+outcome_code,label,sort_order
+advice,Counsel / advice,01
+limited,Limited action,02
+settlement_no_litigation,Settlement without litigation,03
+settlement_litigation,Settlement with litigation,04
+agency,Administrative agency decision,05
+uncontested,Court decision: uncontested,06
+contested,Court decision: contested,07
+appeals,Court decision: appeals,08
+other,Other,09
+extensive,Extensive service,10

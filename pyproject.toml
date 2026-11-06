@@ -31,7 +31,7 @@ grant-reporting-assistant = "gra.server:main"
 include = ["gra*"]
 
 [tool.setuptools.package-data]
-gra = ["static/*"]
+gra = ["static/*", "sample/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -63,6 +63,7 @@
     const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
     if (radio && !state.providerTouched) radio.checked = true;
     showProvider(s);
+    if (typeof showEstimate === "function") showEstimate();
     return s;
   }
   const closeSetup = () => { $("setup").hidden = true; $("whats-new").hidden = true; };
@@ -103,6 +104,15 @@
   $("period-start").value = `${lastYear}-01-01`;
   $("period-end").value = `${lastYear}-12-31`;
 
+  const setters = {};
+  // A rough guide before anything is sent, from earlier runs: most reports take a few minutes and about $1.
+  function showEstimate() {
+    const p = state.status?.provider === "openai" ? "OpenAI" : "Anthropic";
+    const big = state.reportFiles.reduce((n, f) => n + f.size, 0) > 3 * 1048576 || state.reportFiles.length > 2;
+    $("estimate").textContent = state.reportFiles.length && state.dataFiles.length
+      ? `Estimate: usually ${big ? "5 to 15" : "3 to 10"} minutes and ${big ? "about $1 to $3" : "about $1 or less"} in AI charges, billed by ${p} to your account. Reports with many tables, and each correction you request, take longer and cost more.`
+      : "";
+  }
   function bindDrop(zoneId, inputId, listId, key) {
     const zone = $(zoneId), input = $(inputId);
     const render = () => {
@@ -114,6 +124,7 @@
       $("preview-body").hidden = true;  // a preview of other files would mislead
       state.previewToken = (state.previewToken || 0) + 1;  // and one still loading is discarded
       msg("upload-msg", "");
+      showEstimate();
     };
     const set = (files) => {
       // A file chosen again replaces the earlier copy of the same name, so a corrected export is never ignored.
@@ -121,6 +132,7 @@
       state[key] = [...state[key].filter((f) => !names.has(f.name)), ...files];
       render();
     };
+    setters[key] = set;
     // The list sits inside the clickable box, so its buttons must not open the file picker.
     $(listId).onclick = (e) => {
       const btn = e.target.closest("button");
@@ -137,6 +149,23 @@
   }
   bindDrop("drop-report", "report-files", "report-list", "reportFiles");
   bindDrop("drop-data", "data-files", "data-list", "dataFiles");
+
+  $("sample").onclick = async () => {
+    msg("upload-msg", "Loading the fictional sample…");
+    try {
+      const s = await api("/api/sample");
+      const load = async (names) => Promise.all(names.map(async (n) => {
+        const res = await fetch(`/api/sample/${encodeURIComponent(n)}`);
+        if (!res.ok) throw new Error("The sample files could not be loaded.");
+        return new File([await res.blob()], n, { type: res.headers.get("content-type") || "" });
+      }));
+      const [report, data] = await Promise.all([load(s.report), load(s.data)]);
+      state.reportFiles = []; state.dataFiles = [];
+      setters.reportFiles(report); setters.dataFiles(data);
+      $("period-start").value = s.period[0]; $("period-end").value = s.period[1];
+      msg("upload-msg", `Loaded ${s.name}: last year's report and this year's made-up records. Press Prepare report to see the full process.`, "ok");
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+  };
 
   $("start").onclick = async () => {
     $("start").disabled = true;

@@ -35,6 +35,11 @@ from .schema import describe
 
 log = logging.getLogger("gra")
 STATIC = Path(__file__).parent / "static"
+# The fictional Juniper Ridge sample (synthetic data, invented organization) for trying the app safely.
+SAMPLE = Path(__file__).parent / "sample"
+SAMPLE_REPORT = "Juniper Ridge 2025 annual report.pdf"
+SAMPLE_DATA = ("cases.csv", "clients.csv", "demographic_responses.csv", "outcome_codes.csv", "problem_codes.csv")
+SAMPLE_PERIOD = ("2026-01-01", "2026-12-31")
 DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 KEEP_RUNS = 5
@@ -349,6 +354,18 @@ def create_app(model_factory=None) -> FastAPI:
         stamp = run.current_period[1].replace("-", "")
         return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": f'attachment; filename="data-collection-guide-{stamp}.docx"'})
+
+    @app.get("/api/sample")
+    def sample():
+        """The fictional sample: a past report, its data extract and the period to report on."""
+        return {"report": [SAMPLE_REPORT], "data": list(SAMPLE_DATA), "period": list(SAMPLE_PERIOD),
+                "name": "Juniper Ridge Legal Aid Society (fictional)"}
+
+    @app.get("/api/sample/{name}")
+    def sample_file(name: str):
+        if name not in (SAMPLE_REPORT, *SAMPLE_DATA):
+            raise HTTPException(404, "Not a sample file.")
+        return FileResponse(SAMPLE / name)
 
     @app.get("/")
     def index():

@@ -65,3 +65,28 @@ def test_guide_says_not_completed_and_tells_same_named_tables_apart():
     assert statuses["Clients"] == "Partly complete"
     same = [Table(i, "Staff", "", ["N"], gap) for i in ("a", "b")]
     assert display_titles(same) == {"a": "Staff (1 of 2)", "b": "Staff (2 of 2)"}
+
+
+def test_fictional_sample_is_served_and_packed(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from gra.server import create_app
+
+    client = TestClient(create_app(lambda: None))
+    s = client.get("/api/sample").json()
+    assert s["period"] == ["2026-01-01", "2026-12-31"] and len(s["data"]) == 5
+    for name in s["report"] + s["data"]:
+        res = client.get(f"/api/sample/{name}")
+        assert res.status_code == 200 and len(res.content) > 100
+    assert client.get("/api/sample/..%2Fserver.py").status_code == 404
+    assert client.get("/api/sample/other.csv").status_code == 404
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("build_release", root / "tools" / "build_release.py")
+    br = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(br)
+    assert br.SAMPLE_FILES <= set(br.program_files())
+    assert "Synthetic demonstration edition" in (root / "gra" / "sample" / "README.txt").read_text() or \
+        "SYNTHETIC" in (root / "gra" / "sample" / "README.txt").read_text()
