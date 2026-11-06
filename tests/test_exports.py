@@ -113,3 +113,19 @@ def test_definitions_are_exported_and_tab_names_read_cleanly():
     assert wb["Definitions"]["A3"].value == "What the figures count"
     assert all(len(n) <= 31 for n in wb.sheetnames)
     assert "Definitions" not in load_workbook(io.BytesIO(to_xlsx(tables, notes, "Fallback", "2026", {}))).sheetnames
+
+
+def test_word_header_rows_repeat_and_stay_compact():
+    from docx import Document
+    from docx.oxml.ns import qn
+    from gra.exports import header_font_size, to_docx
+    from gra.tables import Cell, Row, Table
+    headers = [f"Column heading number {i}" for i in range(12)]
+    rows = [Row(f"Row {r}", "detail", 0, [Cell(value=r) for _ in headers]) for r in range(80)]
+    data = to_docx([Table("t1", "Wide table", "", headers, rows)], [], "Grant report tables", "2025")
+    table = Document(io.BytesIO(data)).tables[0]
+    tr_pr = table.rows[0]._tr.trPr
+    assert tr_pr.find(qn("w:tblHeader")) is not None
+    assert table.rows[1]._tr.trPr is None or table.rows[1]._tr.trPr.find(qn("w:tblHeader")) is None
+    run = table.rows[0].cells[1].paragraphs[0].runs[0]
+    assert run.font.size == header_font_size(12) and run.bold

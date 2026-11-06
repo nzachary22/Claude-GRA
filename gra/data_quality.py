@@ -16,6 +16,7 @@ from datetime import date
 
 from .engine import Note
 from .importer import Catalog
+from .exports import repeat_header
 from .tables import Table
 
 ATTENTION_BELOW = 90.0  # percent filled under which a field is flagged
@@ -135,6 +136,7 @@ def to_quality_docx(tables: list[Table], notes: list[Note], catalog: Catalog, sq
         doc.add_heading("Tables affected", level=1)
         grid = doc.add_table(rows=1, cols=4)
         grid.style = "Light Grid Accent 1"
+        repeat_header(grid.rows[0])
         for cell, text in zip(grid.rows[0].cells, ("Table", "Figures available", "Figures unavailable", "Status")):
             cell.text = text
         for s in short:
@@ -151,6 +153,7 @@ def to_quality_docx(tables: list[Table], notes: list[Note], catalog: Catalog, sq
                           f"than {ATTENTION_BELOW:.0f}% of records are marked as needing attention.")
         grid = doc.add_table(rows=1, cols=5)
         grid.style = "Light Grid Accent 1"
+        repeat_header(grid.rows[0])
         for cell, text in zip(grid.rows[0].cells, ("Field", "Data file", "Filled in", "Missing", "% filled")):
             cell.text = text
         for f in fields:
