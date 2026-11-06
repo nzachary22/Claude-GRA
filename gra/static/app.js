@@ -56,6 +56,7 @@
   async function checkStatus() {
     const s = await api("/api/status");
     state.status = s;
+    if (s.version) document.querySelector(".ver").textContent = "V." + s.version.replace(/\.0$/, "");
     if (!s.has_key) $("setup").hidden = false;  // a panel the user opened stays open
     $("setup-title").textContent = s.has_key ? "Settings" : "One-time setup";
     $("setup-close").hidden = !s.has_key;
