@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
   <link rel="icon" href="/static/icon.ico">
-  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/style.css?v=14">
 </head>
 <body>
   <header class="top">
@@ -22,7 +22,7 @@
     <!-- One-time setup -->
     <section id="setup" class="card" hidden>
       <h2 id="setup-title">One-time setup</h2>
-      <p class="whats-new" id="whats-new" hidden><b>New in V.1.5:</b> <b>Some considerations to check</b> at the top of the results lists the AI's main choices, questions about scope and anything that looks incomplete in your data, each with one-click options to refine the tables. Extra downloads, such as the Data collection guide, are now under <b>More downloads</b> below the tables. Try the app safely with the <b>fictional sample</b>, and see a time and cost estimate before you start.</p>
+      <p class="whats-new" id="whats-new" hidden><b>New in V.1.5:</b> <b>Some considerations to check</b> at the top of the results lists the AI's main choices, questions about scope and anything that looks incomplete in your data, each with one-click options to refine the tables. Extra downloads, such as the Data collection guide, are now under <b>More downloads</b> below the tables. Watch a <b>demo</b> with fictional data (no AI key needed), and see a time and cost estimate before you start.</p>
       <p>The assistant uses an AI service to read your report and plan the calculations. Choose Anthropic (Claude) or OpenAI and paste your own API key once; it is stored in this computer's secure key store (Windows Credential Manager or the Mac Keychain). You pay the service directly for what you use.</p>
       <p class="muted">Client records never leave this computer, whichever service you choose. The AI only receives your report, a description of the data columns and totals calculated here.</p>
       <fieldset class="providers" id="providers">
@@ -67,7 +67,12 @@
         <span>to</span>
         <input type="date" id="period-end" aria-label="Period end" required>
       </div>
-      <p class="muted sample-line">New to the app? <button type="button" id="sample" class="link">Try it with the fictional sample</button> (an invented legal aid society's report and made-up records, safe to show on screen). <a id="sample-report" href="/api/sample/Juniper%20Ridge%202025%20annual%20report.pdf" target="_blank" rel="noopener">View the sample's past report</a></p>
+      <div class="demo-box">
+        <div><strong>New to the app?</strong> Watch a demo with a fictional legal aid society's past report and made-up records. No AI key needed, and nothing leaves this computer.</div>
+        <div class="demo-actions"><button type="button" id="demo" class="secondary">Watch the demo</button>
+          <a id="sample-report" href="/api/sample/Juniper%20Ridge%202025%20annual%20report.pdf" target="_blank" rel="noopener">View the sample's past report</a>
+          <button type="button" id="sample" class="link">Load the sample files to run with your own AI key</button></div>
+      </div>
       <div class="actions">
         <button id="start" class="primary" disabled>Prepare report</button>
         <button id="preview" class="secondary" disabled title="Nothing is sent to the AI">Preview what the AI will see</button>
@@ -103,6 +108,7 @@
           <button id="new-report" class="link">New report</button>
         </div>
       </div>
+      <p id="demo-banner" class="demo-banner" hidden>This is the recorded demo with fictional data. No AI service was used. To prepare a report from your own data, add your AI key in <button type="button" class="link" id="demo-settings">Settings</button> and upload your files.</p>
       <p id="review-msg" class="msg" role="status"></p>
       <div id="general-notes"></div>
       <div id="tables"></div>
@@ -128,6 +134,6 @@
       </details>
     </section>
   </main>
-  <script src="/static/app.js?v=17"></script>
+  <script src="/static/app.js?v=18"></script>
 </body>
 </html>

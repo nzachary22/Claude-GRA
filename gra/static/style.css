@@ -134,6 +134,11 @@ table.report td[title] { cursor: help; }
 .opts .chosen { border-color: var(--accent); background: var(--head); font-weight: 600; cursor: default; opacity: 1; }
 .more-list { margin: 0; padding-left: 18px; }
 .more-list li { margin: 4px 0; }
-.sample-line { margin: 10px 0 0; font-size: 14px; }
-.sample-line .link { padding: 0; }
+.demo-box { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 14px; }
+.demo-actions { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.demo-actions .link { padding: 0; }
+.demo-banner { background: var(--head); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; }
+.demo-banner .link { padding: 0; }
 .estimate { font-size: 13px; margin: 6px 0 0; }
+#review.demo .change, #review.demo .opts { display: none; }
+.demo-actions a { color: var(--accent); text-decoration: none; }

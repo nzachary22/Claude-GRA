@@ -22,7 +22,7 @@ EXECUTABLE = {"start.command"}
 PACKAGE = "gra/"
 BLOCKED = re.compile(r"\.(db|sqlite3?|csv|xlsx?|docx|pdf|env|key|pem|log)$|__pycache__|(^|/)\.", re.I)
 # The only data files allowed in the zip: the fictional Juniper Ridge sample (synthetic records).
-SAMPLE_FILES = {f"gra/sample/{n}" for n in ("Juniper Ridge 2025 annual report.pdf", "cases.csv", "clients.csv",
+SAMPLE_FILES = {f"gra/sample/{n}" for n in ("Juniper Ridge 2025 annual report.pdf", "case_events.csv", "cases.csv", "clients.csv",
                                             "demographic_responses.csv", "outcome_codes.csv", "problem_codes.csv")}
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
 

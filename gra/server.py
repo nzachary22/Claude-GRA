@@ -38,7 +38,8 @@ STATIC = Path(__file__).parent / "static"
 # The fictional Juniper Ridge sample (synthetic data, invented organization) for trying the app safely.
 SAMPLE = Path(__file__).parent / "sample"
 SAMPLE_REPORT = "Juniper Ridge 2025 annual report.pdf"
-SAMPLE_DATA = ("cases.csv", "clients.csv", "demographic_responses.csv", "outcome_codes.csv", "problem_codes.csv")
+SAMPLE_DATA = ("case_events.csv", "cases.csv", "clients.csv", "demographic_responses.csv", "outcome_codes.csv",
+               "problem_codes.csv")
 SAMPLE_PERIOD = ("2026-01-01", "2026-12-31")
 DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
@@ -72,6 +73,7 @@ class Run:
     pre_events: list[dict] = field(default_factory=list)
     cancel_requested: bool = False
     schema_text: str = ""
+    demo: bool = False  # the recorded no-key demo on the fictional sample
 
     @property
     def current_period(self) -> tuple[str, str]:
@@ -117,7 +119,7 @@ def create_app(model_factory=None) -> FastAPI:
         return {"version": __version__, "provider": provider,
                 "has_key": model_factory is not None or keys[provider], "keys": keys,
                 # Open Settings once, so people upgrading with a saved key see the choice of AI service.
-                "show_settings": model_factory is None and not settings_seen(),
+                "show_settings": model_factory is None and not settings_seen() and any(keys.values()),
                 "providers": [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items()]}
 
     @app.post("/api/key")
@@ -194,6 +196,24 @@ def create_app(model_factory=None) -> FastAPI:
         threading.Thread(target=_work, args=(run, factory), daemon=True).start()
         return {"id": run_id}
 
+    @app.post("/api/demo")
+    def start_demo():
+        """The no-key demo: the fictional sample, prepared by a recorded analyst instead of an AI service."""
+        from .demo import DemoModel
+
+        run_id = uuid.uuid4().hex[:12]
+        folder = app_data_dir() / "runs" / run_id
+        (folder / "report").mkdir(parents=True)
+        (folder / "data").mkdir()
+        for name, sub in [(SAMPLE_REPORT, "report")] + [(n, "data") for n in SAMPLE_DATA]:
+            shutil.copyfile(SAMPLE / name, folder / sub / name)
+        run = Run(run_id, folder, SAMPLE_PERIOD, [SAMPLE_REPORT], list(SAMPLE_DATA), demo=True)
+        runs[run_id] = run
+        _prune(runs)
+        pause = 1.5 if model_factory is None else 0  # tests skip the pauses that make progress visible
+        threading.Thread(target=_work, args=(run, lambda: DemoModel(*SAMPLE_PERIOD, SAMPLE, pause)), daemon=True).start()
+        return {"id": run_id}
+
     @app.get("/api/runs/{run_id}")
     def poll(run_id: str, since: int = 0):
         run = get_run(run_id)
@@ -205,7 +225,7 @@ def create_app(model_factory=None) -> FastAPI:
             "period": list(run.current_period), "report_files": run.report_names, "data_files": run.data_names,
             "import_summary": run.import_summary,
             "events": events[since:], "event_count": len(events),
-            "tables": snap["tables"], "notes": snap["notes"], "report": snap["report"], "queries_used": snap["queries_used"],
+            "demo": run.demo, "tables": snap["tables"], "notes": snap["notes"], "report": snap["report"], "queries_used": snap["queries_used"],
             "data_gaps": bool(run.session and run.session.tables
                               and has_gaps(run.session.tables, list(run.session.notes.values()))),
         }
@@ -221,6 +241,9 @@ def create_app(model_factory=None) -> FastAPI:
     @app.post("/api/runs/{run_id}/correct")
     def correct(run_id: str, body: CorrectionIn):
         run = get_run(run_id)
+        if run.demo:
+            raise HTTPException(400, "The demo is a recording, so it can't recalculate. To try changes, add your own "
+                                     "AI key in Settings and prepare a report from your files or the sample files.")
         if not run.session or run.session.status == "running" or run.status == "importing":
             raise HTTPException(409, "The report is still being prepared.")
         text = body.text.strip()
@@ -403,7 +426,8 @@ def _work(run: Run, factory):
             return
         gate = QueryGate(db, catalog)
         _check_reports(run, gate)
-        _event(run, "status", "Connecting to the AI service")
+        _event(run, "status", "Starting the recorded demo; nothing is sent to any AI service" if run.demo
+               else "Connecting to the AI service")
         model = factory()
         layout = layout_summary([run.folder / "report" / n for n in run.report_names])
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,

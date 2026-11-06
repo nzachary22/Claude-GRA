@@ -23,6 +23,7 @@ KEY = ("note_assumption", {"id": "K1", "kind": "assumption", "key": True,
 def test_prompt_tells_the_ai_to_count_everything_when_a_test_cannot_be_checked():
     assert "assume the uploaded data already holds the organization's reportable" in SYSTEM_PROMPT
     assert "do not narrow the report to the few records that pass" in SYSTEM_PROMPT
+    assert "record no key notes; the summary is then not shown" in SYSTEM_PROMPT
     assert "Scope question" in SYSTEM_PROMPT and "Data that looks incomplete" in SYSTEM_PROMPT
     props = next(t for t in TOOLS if t["name"] == "note_assumption")["input_schema"]["properties"]
     assert props["key"]["type"] == "boolean"
@@ -85,7 +86,7 @@ def test_fictional_sample_is_served_and_packed(tmp_path):
 
     client = TestClient(create_app(lambda: None))
     s = client.get("/api/sample").json()
-    assert s["period"] == ["2026-01-01", "2026-12-31"] and len(s["data"]) == 5
+    assert s["period"] == ["2026-01-01", "2026-12-31"] and len(s["data"]) == 6
     for name in s["report"] + s["data"]:
         res = client.get(f"/api/sample/{name}")
         assert res.status_code == 200 and len(res.content) > 100
@@ -128,3 +129,29 @@ def test_sample_report_link_opens_the_pdf():
     assert res.status_code == 200 and res.headers["content-type"] == "application/pdf"
     assert "attachment" not in res.headers.get("content-disposition", "")
     assert unquote(href).endswith("annual report.pdf")
+
+
+def test_demo_runs_with_no_key_and_cannot_be_corrected(monkeypatch):
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from gra.server import create_app
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    c = TestClient(create_app(lambda: (_ for _ in ()).throw(AssertionError("no AI service in the demo"))))
+    run_id = c.post("/api/demo").json()["id"]
+    for _ in range(300):
+        r = c.get(f"/api/runs/{run_id}").json()
+        if r["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert r["status"] == "done" and r["demo"] is True, r.get("error")
+    assert [t["title"] for t in r["tables"]] == ["01 Race / ethnicity by age", "02 Gender",
+                                                 "03 Legal problems × case closure outcomes"]
+    assert not any(n["key"] for n in r["notes"])  # complete tables: no considerations to raise
+    assert any("nothing is sent to any AI service" in e["message"] for e in r["events"])
+    assert c.post(f"/api/runs/{run_id}/correct", json={"text": "x"}).status_code == 400
+    log = c.get(f"/api/runs/{run_id}/activity-log").text
+    assert "recorded demo with fictional data" in log

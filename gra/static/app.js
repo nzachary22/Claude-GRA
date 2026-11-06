@@ -57,9 +57,9 @@
     const s = await api("/api/status");
     state.status = s;
     if (s.version) document.querySelector(".ver").textContent = "V." + s.version.replace(/\.0$/, "");
-    if (!s.has_key) $("setup").hidden = false;  // a panel the user opened stays open
+    // No key is asked for until someone prepares a report of their own; the demo needs none.
     $("setup-title").textContent = s.has_key ? "Settings" : "One-time setup";
-    $("setup-close").hidden = !s.has_key;
+    $("setup-close").hidden = false;
     const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
     if (radio && !state.providerTouched) radio.checked = true;
     showProvider(s);
@@ -69,6 +69,7 @@
   const closeSetup = () => { $("setup").hidden = true; $("whats-new").hidden = true; };
   $("settings-btn").onclick = () => { if ($("setup").hidden) $("setup").hidden = false; else closeSetup(); };
   $("setup-close").onclick = closeSetup;
+  $("demo-settings").onclick = () => { $("setup").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
   $("providers").onchange = async () => {
     state.providerTouched = true;
     showProvider(state.status);
@@ -167,11 +168,26 @@
     } catch (err) { msg("upload-msg", err.message, "err"); }
   };
 
+  $("demo").onclick = async () => {
+    $("demo").disabled = true;
+    try {
+      const { id } = await api("/api/demo", { method: "POST" });
+      msg("upload-msg", "");
+      startPolling(id);
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+    finally { $("demo").disabled = false; }
+  };
+
   $("start").onclick = async () => {
     $("start").disabled = true;
     msg("upload-msg", "Uploading…");
     const s = await checkStatus();
-    if (!s.has_key) { msg("upload-msg", "Add your API key above first.", "err"); $("start").disabled = false; return; }
+    if (!s.has_key) {
+      $("setup").hidden = false;
+      msg("upload-msg", "To prepare a report from these files, add an AI key in the setup panel above. To look around first, watch the demo; it needs no key.", "err");
+      $("setup").scrollIntoView({ behavior: "smooth" });
+      $("start").disabled = false; return;
+    }
     closeSetup();
     const form = new FormData();
     state.reportFiles.forEach((f) => form.append("report_files", f));
@@ -267,6 +283,9 @@
   function renderReview(r) {
     state.last = r;
     show("review");
+    $("demo-banner").hidden = !r.demo;
+    $("review").classList.toggle("demo", !!r.demo);
+    $("correct-form").closest(".card").hidden = !!r.demo;
     const gaps = r.tables.reduce((n, t) => n + t.rows.reduce((m, row) => m + row.cells.filter((c) => c.gap).length, 0), 0);
     $("review-title").textContent = r.report.organization || r.report.title || "Draft tables";
     const reportLine = [r.report.organization ? r.report.title : "", r.report.subtitle].filter(Boolean).join(" · ");

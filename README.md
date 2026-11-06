@@ -12,6 +12,8 @@ Workflow: **Upload → Prepare automatically → Review**, with Copy, Word and E
 
 Requirements: Windows or a Mac (macOS 12 or newer), Python 3.11 or newer from [python.org](https://www.python.org/downloads/), an API key from Anthropic (Claude) or OpenAI, and an internet connection while preparing a report. Reports are prepared with Claude Sonnet 5.5 (Anthropic) or GPT-6.1 Sol at very high reasoning (OpenAI); a typical report costs about $1 or less in API usage. Download `grant-reporting-assistant-1.5.0.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases); the same zip works on both.
 
+To look around first, press **Watch the demo** on the upload screen: it runs a recorded example on a fictional organization's report and made-up records, with no API key, no cost and nothing sent anywhere. An API key is only needed when you prepare a report from your own files.
+
 ### Windows
 
 1. When installing Python, tick "Add python.exe to PATH".
