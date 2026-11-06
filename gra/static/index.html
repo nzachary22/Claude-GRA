@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
   <link rel="icon" href="/static/icon.ico">
-  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/style.css?v=11">
 </head>
 <body>
   <header class="top">
-    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.4</span></div>
+    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.5</span></div>
     <nav class="steps" aria-label="Progress">
       <span data-step="upload" class="active">1 Upload</span>
       <span data-step="prepare">2 Prepare</span>
@@ -22,7 +22,7 @@
     <!-- One-time setup -->
     <section id="setup" class="card" hidden>
       <h2 id="setup-title">One-time setup</h2>
-      <p class="whats-new" id="whats-new" hidden><b>New in V.1.4:</b> when some figures cannot be calculated, download the <b>Data collection guide</b> from the results to show your team what to collect from clients.</p>
+      <p class="whats-new" id="whats-new" hidden><b>New in V.1.5:</b> when the report's eligibility rules cannot be checked in your data, every record is counted and a <b>Key assumption</b> at the top of the results says so, with a Change button. Extra downloads, such as the Data collection guide, are now under <b>More downloads</b> below the tables.</p>
       <p>The assistant uses an AI service to read your report and plan the calculations. Choose Anthropic (Claude) or OpenAI and paste your own API key once; it is stored in this computer's secure key store (Windows Credential Manager or the Mac Keychain). You pay the service directly for what you use.</p>
       <p class="muted">Client records never leave this computer, whichever service you choose. The AI only receives your report, a description of the data columns and totals calculated here.</p>
       <fieldset class="providers" id="providers">
@@ -97,8 +97,6 @@
           <button id="copy" class="secondary">Copy all tables</button>
           <a id="dl-word" class="button secondary" href="#">Download Word</a>
           <a id="dl-excel" class="button secondary" href="#">Download Excel</a>
-          <a id="dl-quality" class="button secondary" href="#" hidden title="What information was missing, and what your team should collect and record so future reports are complete. Field names and counts only, no client details.">Data collection guide</a>
-          <a id="dl-log" class="button secondary" href="#" title="A short report of what stayed on this computer and what was sent to the AI">AI activity report</a>
           <button id="delete-run" class="link" title="Removes this run's uploads, database and AI record from this computer. Download what you need first.">Delete this run's files</button>
           <button id="new-report" class="link">New report</button>
         </div>
@@ -107,6 +105,13 @@
       <div id="general-notes"></div>
       <div id="tables"></div>
       <div id="definitions"></div>
+      <div class="card more">
+        <h3>More downloads</h3>
+        <ul class="more-list">
+          <li id="quality-item" hidden><a id="dl-quality" href="#">Data collection guide</a> <span class="muted">What information was missing and what your team should collect so future reports are complete. Field names and counts only, no client details, so it can be shared.</span></li>
+          <li><a id="dl-log" href="#">AI activity report</a> <span class="muted">What stayed on this computer and what was sent to the AI.</span></li>
+        </ul>
+      </div>
       <div class="card">
         <h3>Request a correction</h3>
         <p class="muted">Describe what should change in plain words, for example "count clients by county of residence, not office". Affected figures are recalculated.</p>
@@ -121,6 +126,6 @@
       </details>
     </section>
   </main>
-  <script src="/static/app.js?v=13"></script>
+  <script src="/static/app.js?v=14"></script>
 </body>
 </html>

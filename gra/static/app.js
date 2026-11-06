@@ -7,12 +7,12 @@
   const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (cell) => cell.display ?? "";
-  const kindLabel = (k) => ({ assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
+  const kindLabel = (k, key) => (key ? "Key assumption" : { assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
   // A note about one table sits beside it; anything broader is shown once, above the tables.
   const noteScope = (r) => {
     const ids = new Set(r.tables.map((t) => t.id));
     const single = (n) => n.tables.length === 1 && ids.has(n.tables[0]);
-    return { single, shared: r.notes.filter((n) => !single(n)) };
+    return { single: (n) => !n.key && single(n), key: r.notes.filter((n) => n.key), shared: r.notes.filter((n) => !n.key && !single(n)) };
   };
   const affects = (n, r) => {
     const named = r.tables.filter((t) => n.tables.includes(t.id)).map((t) => t.title);
@@ -246,9 +246,9 @@
     $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
     $("dl-log").href = `/api/runs/${r.id}/activity-report`;
     $("dl-quality").href = `/api/runs/${r.id}/data-quality`;
-    $("dl-quality").hidden = !r.data_gaps;
+    $("quality-item").hidden = !r.data_gaps;
     const scope = noteScope(r);
-    $("general-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
+    $("general-notes").innerHTML = (scope.key.length ? `<div class="card key-notes"><h3>Key assumption: who these tables count</h3><div class="notes">${scope.key.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "") + (scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "");
     $("tables").innerHTML = r.tables.map((t) => {
       const notes = r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id);
       return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3>${t.subtitle ? `<p class="table-sub">${esc(t.subtitle)}</p>` : ""}<div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
@@ -273,7 +273,7 @@
     return `<table class="report">${head}<tbody>${body}</tbody></table>`;
   }
   function noteHtml(n, affected = "") {
-    return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind))}</div><div>${esc(n.text)}</div>
+    return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind, n.key))}</div><div>${esc(n.text)}</div>
       ${affected ? `<div class="muted">Affects: ${esc(affected)}</div>` : ""}
       ${n.how_to_change ? `<div class="muted">${esc(n.how_to_change)}</div>` : ""}
       <div class="change"><button class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">Change</button></div></div>`;
@@ -325,8 +325,9 @@
     const scope = noteScope(r);
     const defs = r.report.definitions || [];
     const heading = [r.report.organization, r.report.title, r.report.subtitle].filter(Boolean);
-    const noteLine = (n) => { const a = affects(n, r); return `${kindLabel(n.kind)}: ${n.text}${a ? ` [Affects: ${a}]` : ""}`; };
+    const noteLine = (n) => { const a = affects(n, r); return `${kindLabel(n.kind, n.key)}: ${n.text}${a ? ` [Affects: ${a}]` : ""}`; };
     const htmlHead = heading.map((x, i) => (i ? `<p>${esc(x)}</p>` : `<h2>${esc(x)}</h2>`)).join("") +
+      scope.key.map((n) => `<p><b>${esc(noteLine(n))}</b></p>`).join("") +
       scope.shared.map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("");
     const html = htmlHead + r.tables.map((t) => `<h3>${esc(t.title)}</h3>${t.subtitle ? `<p><i>${esc(t.subtitle)}</i></p>` : ""}${tableHtml(t).replace('class="report"', 'border="1" cellpadding="4" style="border-collapse:collapse"')}${t.note ? `<p><i>${esc(t.note)}</i></p>` : ""}` +
       r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("")).join("<br>") +

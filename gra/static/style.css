@@ -120,3 +120,7 @@ table.report td[title] { cursor: help; }
 .defs h4 { margin: 12px 0 2px; }
 .defs p { margin: 0 0 6px; max-width: 80ch; }
 .files .size { color: var(--muted); font-size: 12px; }
+.key-notes { border-color: var(--accent); }
+.key-notes .note { border-left-color: var(--accent); }
+.more-list { margin: 0; padding-left: 18px; }
+.more-list li { margin: 4px 0; }

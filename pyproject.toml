@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grant-reporting-assistant"
-version = "1.4.0"
+version = "1.5.0"
 description = "Local grant-reporting assistant: protected SQLite data, AI-built aggregate report tables."
 requires-python = ">=3.11"
 license = "MIT"
