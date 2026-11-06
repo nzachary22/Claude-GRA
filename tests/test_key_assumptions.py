@@ -1,6 +1,7 @@
 """V.1.5: key assumptions about who the report counts, and guide wording fixes."""
 
 import io
+import json
 
 from docx import Document
 from openpyxl import load_workbook
@@ -155,3 +156,73 @@ def test_demo_runs_with_no_key_and_cannot_be_corrected(monkeypatch):
     assert c.post(f"/api/runs/{run_id}/correct", json={"text": "x"}).status_code == 400
     log = c.get(f"/api/runs/{run_id}/activity-log").text
     assert "recorded demo with fictional data" in log
+
+
+def test_figures_explain_how_they_were_counted(tiny_db):
+    session, _ = make(tiny_db, [[("run_query", {"sql": GENDER_SQL, "purpose": "Counting clients by gender"})],
+                                [("submit_tables", {"tables": [gender_table()]})]])
+    session.run()
+    snap = session.snapshot()
+    assert snap["purposes"]["Q1"] == "Counting clients by gender"
+    rows = snap["tables"][0]["rows"]
+    detail = next(r for r in rows if r["kind"] == "detail")
+    how = detail["cells"][0]["how"]
+    assert how["query"] == "Q1" and how["match"]
+    total = next(r for r in rows if r["kind"] == "total")
+    assert total["cells"][0]["how"]["sum_of"]
+
+
+def test_saved_choices_are_kept_and_reused(tiny_files, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from gra.server import create_app
+    from tests.scripted import ScriptedModel
+    from tests.test_server import start, wait
+
+    seen = []
+
+    def factory():
+        m = ScriptedModel([[("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})],
+                           [KEY, ("submit_tables", {"tables": [gender_table()]})],
+                           [("submit_tables", {"tables": [gender_table()]})]])
+        seen.append(m)
+        return m
+
+    c = TestClient(create_app(factory))
+    run_id = start(c, tiny_files, tmp_path)
+    assert wait(c, run_id)["status"] == "done"
+    assert c.post(f"/api/runs/{run_id}/correct", json={"text": "Count only cases with income recorded."}).status_code == 200
+    wait(c, run_id)
+    res = c.post(f"/api/runs/{run_id}/save-choices").json()
+    assert res["count"] == 2
+    (saved,) = c.get("/api/saved-choices").json()
+    assert saved["report_files"] == ["report.txt"]
+
+    report = tmp_path / "report.txt"
+    files = [("report_files", ("report.txt", report.read_bytes(), "text/plain"))]
+    files += [("data_files", (f.name, f.read_bytes(), "text/csv")) for f in tiny_files]
+    run2 = c.post("/api/runs", files=files, data={"period_start": "2026-01-01", "period_end": "2026-12-31",
+                                                  "saved_choices": saved["id"]}).json()["id"]
+    r2 = wait(c, run2)
+    opening = json.dumps(seen[-1].seen_messages[0][0]["content"])
+    assert "SAVED CHOICES" in opening and "Count only cases with income recorded." in opening
+    assert any("Reusing 2 saved choice(s)" in e["message"] for e in r2["events"])
+    assert c.delete(f"/api/saved-choices/{saved['id']}").status_code == 200
+    assert c.get("/api/saved-choices").json() == []
+
+
+def test_prompt_flags_big_swings_from_the_past_report():
+    assert "200% or more" in SYSTEM_PROMPT and "at least one of the two figures is 10 or more" in SYSTEM_PROMPT
+
+
+def test_how_it_works_sheet_fits_one_page_and_avoids_claims():
+    from fastapi.testclient import TestClient
+
+    from gra.server import create_app
+
+    res = TestClient(create_app(lambda: None)).get("/api/how-it-works.docx")
+    assert res.status_code == 200
+    doc = Document(io.BytesIO(res.content))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "never sent" in text and "in full" in text and "does not certify compliance" in text
+    assert len(text) < 4200  # about one printed page at this size

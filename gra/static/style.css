@@ -142,3 +142,11 @@ table.report td[title] { cursor: help; }
 .estimate { font-size: 13px; margin: 6px 0 0; }
 #review.demo .change, #review.demo .opts { display: none; }
 .demo-actions a { color: var(--accent); text-decoration: none; }
+td.explainable, td.num.gap { cursor: help; }
+td.explainable:hover, td.explainable:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.explain { position: absolute; z-index: 20; max-width: 420px; background: var(--card); color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 30px 10px 12px; font-size: 13px; box-shadow: 0 6px 18px rgba(0,0,0,.15); }
+.explain .close { position: absolute; top: 4px; right: 6px; border: 0; background: none; font-size: 16px; padding: 2px 6px; color: var(--muted); cursor: pointer; }
+.save-line { margin: -6px 0 16px; font-size: 14px; }
+.save-line .link, .saved-line .link { padding: 0 4px; }
+.saved-line { margin: 10px 0 0; font-size: 14px; }
+.saved-line select { font: inherit; max-width: 100%; }

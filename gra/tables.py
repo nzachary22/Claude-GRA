@@ -51,6 +51,7 @@ class Cell:
     source: str | None = None  # e.g. "Q4" or "sum of rows 1-3"
     format: str | None = None  # number | percent | currency; None means plain
     decimals: int | None = None
+    how: dict | None = None  # how the figure was found, for the "how was this counted" popup; never record values
 
     @property
     def is_number(self) -> bool:
@@ -101,7 +102,7 @@ class Table:
             "orientation": self.orientation,
             "rows": [{"label": r.label, "kind": r.kind, "indent": r.indent,
                       "cells": [{"value": c.value, "gap": c.gap, "source": c.source, "format": c.format,
-                                 "decimals": c.decimals, "display": c.display} for c in r.cells]}
+                                 "decimals": c.decimals, "display": c.display, "how": c.how} for c in r.cells]}
                      for r in self.rows],
         }
 
@@ -230,6 +231,7 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
             if isinstance(columns[c_i], dict) and columns[c_i].get("sum_of_columns") is not None:
                 continue
             rows[r_i].cells[c_i] = _sum([rows[j].cells[c_i] for j in idx], f"sum of rows {_span(idx)}")
+            rows[r_i].cells[c_i].how = {"sum_of": [rows[j].label for j in idx]}
 
     # Column sums (e.g. a Total column) for every row.
     for c_i, col in enumerate(columns):
@@ -243,6 +245,7 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
             if row.kind == "heading":
                 continue
             row.cells[c_i] = _sum([row.cells[j] for j in idx], f"sum of columns {_span(idx)}")
+            row.cells[c_i].how = {"sum_of": [headers[j] for j in idx]}
 
     _apply_formats(rows, rows_spec, columns, problems)
     subtitle = _fill_text(spec.get("subtitle"), spec.get("values"), results, problems)
@@ -340,25 +343,26 @@ def _resolve_cell(cs, results, column) -> Cell:
     for k in match:
         if k not in result.columns:
             raise TableSpecError([f"{qid} has no column {k!r} to match on"])
+    how = {"query": qid, "column": col_name, "match": {str(k): str(v) for k, v in match.items()}}
     hits = [row for row in result.rows
             if all(_same(row[result.columns.index(k)], v) for k, v in match.items())]
     if len(hits) > 1:
         raise TableSpecError([f"{qid} match {match} hits {len(hits)} rows; make it unique"])
     if not hits:
         if cs.get("missing_means_zero"):
-            return Cell(value=0, source=qid)
+            return Cell(value=0, source=qid, how={**how, "none_found": True})
         raise TableSpecError([f"{qid} has no row matching {match}; if no row means a count of zero, "
                               "set missing_means_zero, otherwise mark the cell as a gap"])
     value = hits[0][ci]
     if value is None:
         if cs.get("missing_means_zero"):
-            return Cell(value=0, source=qid)
-        return Cell(gap="No value in the data", source=qid)
+            return Cell(value=0, source=qid, how={**how, "none_found": True})
+        return Cell(gap="No value in the data", source=qid, how=how)
     if isinstance(value, float) and value.is_integer() and cs.get("integer", True):
         value = int(value)
     if isinstance(value, float) and cs.get("decimals") is not None:
         value = round(value, int(cs["decimals"]))
-    return Cell(value=value, source=qid)
+    return Cell(value=value, source=qid, how=how)
 
 
 def _sum(cells: list[Cell], source: str) -> Cell:
