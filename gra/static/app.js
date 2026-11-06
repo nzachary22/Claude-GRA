@@ -428,7 +428,11 @@
       const a = affects(n, r);
       const opts = n.options || [];
       const keeps = opts.length && /^keep\b/i.test(opts[0].label);
-      const buttons = opts.map((o, i) => `<button type="button" class="secondary${i === 0 && keeps ? " chosen" : ""}" data-pick="${i}" aria-pressed="${i === 0 && keeps}">${esc(o.label)}</button>`).join("");
+      // A card whose options don't start with "Keep:" still gets a clear way to leave it as it is.
+      const leave = keeps ? "" : `<button type="button" class="secondary chosen" data-pick="keep" aria-pressed="true">Leave as it is <span class="now">✓ Used in the tables now</span></button>`;
+      const buttons = leave + opts.map((o, i) => i === 0 && keeps
+        ? `<button type="button" class="secondary chosen" data-pick="0" aria-pressed="true">${esc(o.label)} <span class="now">✓ Used in the tables now</span></button>`
+        : `<button type="button" class="secondary" data-pick="${i}" aria-pressed="false">${esc(o.label)}</button>`).join("");
       return `<div class="item" data-note="${esc(n.id)}"><span class="tag ${tag[0]}">${tag[1]}</span><div>
         <p>${esc(n.text)}</p>${n.question ? `<p class="small">${esc(n.question)}</p>` : ""}${a ? `<p class="small muted">Affects: ${esc(a)}</p>` : ""}
         <div class="opts">${buttons}<button type="button" class="link" data-pick="other" aria-pressed="false">${opts.length ? "Something else…" : "Change"}</button></div>
@@ -436,9 +440,9 @@
     };
     const section = (title, list) => (list.length ? `<h4>${title}</h4>${list.map(item).join("")}` : "");
     return `<div class="card considerations"><h3>Some considerations to check</h3>
-      <p class="muted lead">Optional refinements. The tables are ready as they are. To use a different approach, pick an answer for any of these, then press Recalculate once at the end; all your answers are applied together.</p>
+      <p class="muted lead">Optional refinements. The tables are ready as they are: the option marked "Used in the tables now" is what each table already does, so a card you leave alone stays as it is. To change any of them, pick a different option (or "Something else…"), then press Recalculate once at the end; all your changes are applied together.</p>
       ${section("Who was counted", counted)}${section("Things noticed in the data", data)}
-      <div class="recalc"><button type="button" class="primary" id="recalc-all" disabled>Recalculate</button><span class="muted" id="recalc-count">Nothing changed yet.</span></div></div>`;
+      <div class="recalc"><button type="button" class="primary" id="recalc-all" disabled>Recalculate</button><span class="muted" id="recalc-count">The tables already use the selected options. Choose a different option on any card to recalculate.</span></div></div>`;
   }
   function bindConsiderations(r) {
     const box = document.querySelector("#considerations .considerations");
@@ -447,7 +451,7 @@
     const changes = () => [...box.querySelectorAll(".item")].map((el) => {
       const n = r.notes.find((x) => x.id === el.dataset.note), p = picks[n.id];
       const opts = n.options || [], keeps = opts.length && /^keep\b/i.test(opts[0].label);
-      if (p === undefined || (p === 0 && keeps)) return null;
+      if (p === undefined || p === "keep" || (p === 0 && keeps)) return null;
       if (p === "other") {
         const t = el.querySelector("textarea").value.trim();
         return t ? { n, text: t } : null;
@@ -460,12 +464,12 @@
       const c = changes(), open = unfinished();
       $("recalc-all").disabled = !c.length || open > 0;
       $("recalc-count").textContent = open ? `Describe what you'd like in the "Something else" box${open > 1 ? "es" : ""}, or pick another option.`
-        : c.length ? `${c.length} change${c.length > 1 ? "s" : ""} will be applied together.` : "Nothing changed yet.";
+        : c.length ? `${c.length} change${c.length > 1 ? "s" : ""} will be applied together. Cards you left alone stay as they are.` : "The tables already use the selected options. Choose a different option on any card to recalculate.";
     };
     box.querySelectorAll(".item").forEach((el) => {
       const id = el.dataset.note, ta = el.querySelector("textarea");
       el.querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => {
-        const v = b.dataset.pick === "other" ? "other" : Number(b.dataset.pick);
+        const v = ["other", "keep"].includes(b.dataset.pick) ? b.dataset.pick : Number(b.dataset.pick);
         picks[id] = v;
         el.querySelectorAll("[data-pick]").forEach((x) => { const on = x === b; x.classList.toggle("chosen", on && x.dataset.pick !== "other"); x.setAttribute("aria-pressed", on); });
         ta.hidden = v !== "other";
