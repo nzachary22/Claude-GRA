@@ -232,13 +232,6 @@ def create_app(model_factory=None) -> FastAPI:
         _write_choices([c for c in _read_choices() if c["id"] != choice_id])
         return {"ok": True}
 
-    @app.get("/api/how-it-works.docx")
-    def how_it_works():
-        from .privacy_sheet import to_sheet_docx
-
-        return Response(to_sheet_docx(), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        headers={"Content-Disposition": 'attachment; filename="grant-reporting-assistant-how-it-works.docx"'})
-
     @app.post("/api/demo")
     def start_demo():
         """The no-key demo: the fictional sample, prepared by a recorded analyst instead of an AI service."""

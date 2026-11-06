@@ -214,15 +214,3 @@ def test_saved_choices_are_kept_and_reused(tiny_files, tmp_path, monkeypatch):
 def test_prompt_flags_big_swings_from_the_past_report():
     assert "200% or more" in SYSTEM_PROMPT and "at least one of the two figures is 10 or more" in SYSTEM_PROMPT
 
-
-def test_how_it_works_sheet_fits_one_page_and_avoids_claims():
-    from fastapi.testclient import TestClient
-
-    from gra.server import create_app
-
-    res = TestClient(create_app(lambda: None)).get("/api/how-it-works.docx")
-    assert res.status_code == 200
-    doc = Document(io.BytesIO(res.content))
-    text = "\n".join(p.text for p in doc.paragraphs)
-    assert "never sent" in text and "in full" in text and "does not certify compliance" in text
-    assert len(text) < 4200  # about one printed page at this size
