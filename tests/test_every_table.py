@@ -71,3 +71,13 @@ def test_a_real_zero_total_beside_real_figures_stays_zero(tiny_db):
 def test_prompt_asks_for_every_table_and_neutral_wording():
     assert '"report_tables"' in SYSTEM_PROMPT and "never replace a table with only a note" in SYSTEM_PROMPT
     assert "at your direction" in SYSTEM_PROMPT and "as confirmed by the organization" in SYSTEM_PROMPT
+
+
+def test_an_unavailable_total_with_an_empty_sum_list_stays_unavailable():
+    """The clinic run: the AI marked a total row as a gap but also gave "sum_of_rows": [], which showed 0."""
+    spec = {"id": "g", "title": "Governance", "columns": [{"header": "Response"}], "rows": [
+        {"label": "Board Member Donations", "gap": "No board records"},
+        {"label": "Total Amount Donated by Board Members", "kind": "total", "sum_of_rows": [],
+         "gap": "Board donation records are unavailable"}]}
+    t = resolve_tables([spec], {})[0]
+    assert t.rows[1].cells[0].gap == "Board donation records are unavailable" and t.rows[1].cells[0].value is None

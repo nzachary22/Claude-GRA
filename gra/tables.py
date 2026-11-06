@@ -228,7 +228,8 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
         cells_spec = rs.get("cells")
         row_gap = rs.get("gap")
         cells: list[Cell] = []
-        if kind == "heading" or rs.get("sum_of_rows") is not None:
+        # A total with nothing to add up is not a total: a row "gap" (or its cells) then stands.
+        if kind == "heading" or (rs.get("sum_of_rows") and row_gap is None):
             cells = [Cell() for _ in range(ncol)]
         elif row_gap is not None:
             if not isinstance(row_gap, str) or not row_gap.strip():
@@ -254,7 +255,7 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
     # Row sums (subtotals, totals) in row order, so totals may sum subtotals.
     for r_i, rs in enumerate(rows_spec):
         idx = rs.get("sum_of_rows")
-        if idx is None:
+        if not idx or rs.get("gap") is not None:
             continue
         if not isinstance(idx, list) or not all(isinstance(j, int) and 0 <= j < len(rows) and j != r_i for j in idx):
             problems.append(f"row {r_i}: sum_of_rows must list other row indexes")
@@ -400,6 +401,8 @@ def _resolve_cell(cs, results, column) -> Cell:
 
 
 def _sum(cells: list[Cell], source: str) -> Cell:
+    if not cells:
+        return Cell(gap="Nothing to total", source=source)
     gaps = [c for c in cells if c.gap]
     if gaps:
         return Cell(gap="Includes unavailable figures", source=source)
