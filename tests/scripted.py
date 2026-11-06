@@ -23,7 +23,7 @@ class ScriptedModel:
             step = step(last_results(messages))
         if not step:
             return SimpleNamespace(content=[{"type": "text", "text": "Done."}], stop_reason="end_turn")
-        content = [{"type": "tool_use", "id": f"tu{self.calls}_{i}", "name": n, "input": inp}
+        content = [{"type": "tool_use", "id": f"tu{self.calls}_{i}", "name": n, "input": with_inventory(n, inp)}
                    for i, (n, inp) in enumerate(step)]
         return SimpleNamespace(content=content, stop_reason="tool_use")
 
@@ -41,3 +41,12 @@ def last_results(messages):
             except (TypeError, ValueError):
                 out.append(b["content"])
     return out
+
+
+def with_inventory(name, inp):
+    """Scripts written before report_tables existed list the tables they submit."""
+    if name != "submit_tables" or not isinstance(inp, dict) or "report_tables" in inp:
+        return inp
+    tables = inp.get("tables") if isinstance(inp.get("tables"), list) else []
+    return {**inp, "report_tables": [{"id": str(t.get("id")), "title": str(t.get("title", ""))}
+                                     for t in tables if isinstance(t, dict) and t.get("id")]}

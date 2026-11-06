@@ -172,6 +172,38 @@ def not_completed_table(failed: FailedTable, attempts: int) -> Table:
                  warnings=[reason])
 
 
+def _is_total(row: Row) -> bool:
+    return row.kind in ("total", "subtotal") or row.label.strip().lower().startswith("total")
+
+
+def _no_totals_of_unavailable(rows: list[Row], rows_spec: list) -> None:
+    """A total row bound to its own figure (not sum_of_rows) cannot be 0 when every figure it totals is
+    unavailable: it becomes unavailable too, so a report never shows 0 above a column of n/a."""
+    for r_i, row in enumerate(rows):
+        if not _is_total(row) or (isinstance(rows_spec[r_i], dict) and rows_spec[r_i].get("sum_of_rows") is not None):
+            continue
+        section = []
+        for j in range(r_i - 1, -1, -1):
+            if rows[j].kind == "heading" or _is_total(rows[j]):
+                break
+            section.append(rows[j])
+        if not section:
+            continue
+        for c_i, cell in enumerate(row.cells):
+            if cell.gap or cell.value not in (0, 0.0) or isinstance(cell.value, bool):
+                continue
+            above = [r.cells[c_i] for r in section if c_i < len(r.cells)]
+            if above and all(c.gap for c in above):
+                row.cells[c_i] = Cell(gap="The figures it totals are unavailable", source=cell.source, how=cell.how)
+
+
+def listed_not_submitted_table(tid: str, title: str) -> Table:
+    """Stand-in for a table the report contains but the AI did not build, so it never quietly disappears."""
+    reason = "Not built from the data"
+    return Table(id=tid, title=title or tid, note="This table is in the report but was not built from the data.",
+                 headers=["Status"], rows=[Row("Not completed", "detail", 0, [Cell(gap=reason)])], warnings=[reason])
+
+
 def _resolve_table(spec: dict, results, index: int) -> Table:
     if not isinstance(spec, dict):
         raise TableSpecError(["each table must be an object"])
@@ -232,6 +264,8 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
                 continue
             rows[r_i].cells[c_i] = _sum([rows[j].cells[c_i] for j in idx], f"sum of rows {_span(idx)}")
             rows[r_i].cells[c_i].how = {"sum_of": [rows[j].label for j in idx]}
+
+    _no_totals_of_unavailable(rows, rows_spec)
 
     # Column sums (e.g. a Total column) for every row.
     for c_i, col in enumerate(columns):
