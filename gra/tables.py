@@ -14,6 +14,9 @@ A table spec (from the AI's submit_tables call) looks like:
         {"label": "Subtotal", "kind": "subtotal", "sum_of_rows": [1, 2]},
         {"label": "Total", "kind": "total", "sum_of_rows": [...]}]}
 
+A detail row whose figures are all unavailable may give "gap": "why" instead of
+"cells"; every cell in the row is then marked unavailable with that reason.
+
 Cell forms: a query binding (above); {"gap": "why the figure is unavailable"};
 {"text": "..."} for non-numeric labels; or null where a column or row sum fills it.
 Literal numbers are rejected so that no figure can bypass the local data.
@@ -89,11 +92,13 @@ class Table:
     warnings: list[str] = field(default_factory=list)
     row_header: str = ""
     subtitle: str = ""
+    orientation: str = ""  # portrait | landscape, as on the reference report's page; "" if not given
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "title": self.title, "subtitle": self.subtitle, "note": self.note,
             "row_header": self.row_header, "headers": self.headers, "warnings": self.warnings,
+            "orientation": self.orientation,
             "rows": [{"label": r.label, "kind": r.kind, "indent": r.indent,
                       "cells": [{"value": c.value, "gap": c.gap, "source": c.source, "format": c.format,
                                  "decimals": c.decimals, "display": c.display} for c in r.cells]}
@@ -101,31 +106,69 @@ class Table:
         }
 
 
+@dataclass
+class FailedTable:
+    """A submitted table that could not be resolved, with what the AI must fix."""
+    id: str
+    title: str
+    headers: list[str]
+    problems: list[str]
+
+
 def resolve_tables(specs: list[dict], results: dict[str, "object"]) -> list[Table]:
     """Resolve every spec against query results (QueryResult by id). Raises TableSpecError."""
+    tables, failed = resolve_each(specs, results)
+    if failed:
+        raise TableSpecError([f"table {f.id}: {p}" for f in failed for p in f.problems])
+    return tables
+
+
+def resolve_each(specs: list[dict], results: dict[str, "object"]) -> tuple[list[Table], list[FailedTable]]:
+    """Resolve each spec on its own, so one faulty table never holds back the others.
+
+    Returns the tables that resolved and, separately, the ones that did not.
+    Raises TableSpecError only when the submission as a whole cannot be read.
+    """
     if not isinstance(specs, list) or not specs:
         raise TableSpecError(["submit_tables needs a non-empty list of tables."])
-    problems: list[str] = []
     tables: list[Table] = []
+    failed: list[FailedTable] = []
     seen_ids: set[str] = set()
     for i, spec in enumerate(specs):
+        tid = str(spec.get("id") or f"t{i + 1}") if isinstance(spec, dict) else f"#{i + 1}"
+        title = str(spec.get("title", "")) if isinstance(spec, dict) else ""
         try:
-            t = _resolve_table(spec, results, i)
-            if t.id in seen_ids:
-                raise TableSpecError([f"duplicate table id {t.id}"])
-            seen_ids.add(t.id)
-            tables.append(t)
+            if tid in seen_ids:
+                raise TableSpecError([f"duplicate table id {tid}; give each table its own id"])
+            seen_ids.add(tid)
+            tables.append(_resolve_table(spec, results, i))
         except TableSpecError as e:
-            label = spec.get("id", f"#{i + 1}") if isinstance(spec, dict) else f"#{i + 1}"
-            problems.extend(f"table {label}: {p}" for p in e.problems)
+            failed.append(FailedTable(tid, title, _headers(spec), e.problems))
         except (TypeError, ValueError, KeyError, AttributeError, IndexError) as e:
             # A malformed spec must come back to the AI to fix, never end the run.
-            label = spec.get("id", f"#{i + 1}") if isinstance(spec, dict) else f"#{i + 1}"
-            problems.append(f"table {label}: the table could not be read ({type(e).__name__}: {e}); "
-                            "check that every binding uses the documented shape")
-    if problems:
-        raise TableSpecError(problems)
-    return tables
+            failed.append(FailedTable(tid, title, _headers(spec), [
+                f"the table could not be read ({type(e).__name__}: {e}); "
+                "check that every binding uses the documented shape"]))
+    return tables, failed
+
+
+def _headers(spec) -> list[str]:
+    try:
+        return [str(c.get("header", "")) if isinstance(c, dict) else str(c) for c in spec.get("columns") or []]
+    except (AttributeError, TypeError):
+        return []
+
+
+def not_completed_table(failed: FailedTable, attempts: int) -> Table:
+    """Stand-in for a table the AI could not get right, so the report shows it was not completed."""
+    reason = f"Could not be completed after {attempts} attempts"
+    headers = failed.headers or ["Status"]
+    first = failed.problems[0] if failed.problems else "the table did not pass the app's checks"
+    return Table(id=failed.id, title=failed.title or failed.id,
+                 note=f"This table could not be completed. Last problem: {first}",
+                 headers=headers,
+                 rows=[Row("Not completed", "detail", 0, [Cell(gap=reason) for _ in headers])],
+                 warnings=[reason])
 
 
 def _resolve_table(spec: dict, results, index: int) -> Table:
@@ -150,12 +193,21 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
             problems.append(f"row {r_i}: unknown kind {kind!r}")
             kind = "detail"
         cells_spec = rs.get("cells")
+        row_gap = rs.get("gap")
         cells: list[Cell] = []
         if kind == "heading" or rs.get("sum_of_rows") is not None:
             cells = [Cell() for _ in range(ncol)]
+        elif row_gap is not None:
+            if not isinstance(row_gap, str) or not row_gap.strip():
+                problems.append(f"row {r_i} ({rs.get('label')}): \"gap\" must give the reason as text")
+            elif cells_spec not in (None, []):
+                problems.append(f"row {r_i} ({rs.get('label')}): give either \"gap\" for the whole row or \"cells\", not both")
+            cells = [Cell(gap=str(row_gap).strip() or "unavailable") for _ in range(ncol)]
         else:
             if not isinstance(cells_spec, list) or len(cells_spec) != ncol:
-                problems.append(f"row {r_i} ({rs.get('label')}): needs exactly {ncol} cells")
+                given = len(cells_spec) if isinstance(cells_spec, list) else 0
+                problems.append(f"row {r_i} ({rs.get('label')}): has {given} cells but the table has {ncol} columns; "
+                                f"give exactly {ncol} cells, or use \"gap\" if the whole row is unavailable")
                 cells = [Cell() for _ in range(ncol)]
             else:
                 for c_i, cs in enumerate(cells_spec):
@@ -199,7 +251,8 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
         raise TableSpecError(problems)
     return Table(id=str(spec.get("id") or f"t{index + 1}"), title=str(spec.get("title", "")),
                  note=note, headers=headers, rows=rows,
-                 row_header=str(spec.get("row_header") or ""), subtitle=subtitle)
+                 row_header=str(spec.get("row_header") or ""), subtitle=subtitle,
+                 orientation=spec.get("orientation") if spec.get("orientation") in ("portrait", "landscape") else "")
 
 
 def _apply_formats(rows, rows_spec, columns, problems):

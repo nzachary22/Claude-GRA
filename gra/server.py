@@ -24,8 +24,9 @@ from pydantic import BaseModel
 from . import __version__
 from .activity import read_events, render_text, sent_text
 from .activity_report import to_report_docx
-from .documents import scan_text, to_blocks
+from .documents import layout_summary, scan_text, to_blocks
 from .engine import ReportSession
+from .data_quality import has_gaps, to_quality_docx
 from .exports import to_docx, to_xlsx
 from .gate import QueryGate
 from .importer import READERS, import_files, load_catalog
@@ -200,6 +201,8 @@ def create_app(model_factory=None) -> FastAPI:
             "import_summary": run.import_summary,
             "events": events[since:], "event_count": len(events),
             "tables": snap["tables"], "notes": snap["notes"], "report": snap["report"], "queries_used": snap["queries_used"],
+            "data_gaps": bool(run.session and run.session.tables
+                              and has_gaps(run.session.tables, list(run.session.notes.values()))),
         }
 
     @app.post("/api/runs/{run_id}/cancel")
@@ -325,15 +328,27 @@ def create_app(model_factory=None) -> FastAPI:
         period = f"{start} to {end}"
         stamp = end.replace("-", "")
         if fmt == "docx":
-            data = to_docx(tables, notes, title, period, run.session.report)
+            data = to_docx(tables, notes, title, period, run.session.report, run.session.page_orientation)
             media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif fmt == "xlsx":
-            data = to_xlsx(tables, notes, title, period, run.session.report)
+            data = to_xlsx(tables, notes, title, period, run.session.report, run.session.page_orientation)
             media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else:
             raise HTTPException(404, "Unknown format.")
         return Response(data, media_type=media, headers={
             "Content-Disposition": f'attachment; filename="grant-report-tables-{stamp}.{fmt}"'})
+
+    @app.get("/api/runs/{run_id}/data-quality")
+    def data_quality(run_id: str):
+        run = get_run(run_id)
+        if not run.session or not run.session.tables:
+            raise HTTPException(409, "There are no tables yet.")
+        s = run.session
+        data = to_quality_docx(s.tables, list(s.notes.values()), s.gate.catalog, [q.sql for q in s.gate.log],
+                               s.report, tuple(run.current_period))
+        stamp = run.current_period[1].replace("-", "")
+        return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        headers={"Content-Disposition": f'attachment; filename="data-collection-guide-{stamp}.docx"'})
 
     @app.get("/")
     def index():
@@ -373,8 +388,9 @@ def _work(run: Run, factory):
         _check_reports(run, gate)
         _event(run, "status", "Connecting to the AI service")
         model = factory()
+        layout = layout_summary([run.folder / "report" / n for n in run.report_names])
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,
-                                    activity_path=run.folder / "activity.jsonl")
+                                    activity_path=run.folder / "activity.jsonl", layout=layout)
         run.status = "running"
         if run.cancel_requested:
             run.session.cancel()
