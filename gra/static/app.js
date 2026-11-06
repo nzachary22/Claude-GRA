@@ -357,7 +357,8 @@
     $("dl-quality").href = `/api/runs/${r.id}/data-quality`;
     $("quality-item").hidden = !r.data_gaps;
     const scope = noteScope(r);
-    $("general-notes").innerHTML = considerationsHtml(scope.key, r) + (scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "");
+    $("considerations").innerHTML = considerationsHtml(scope.key, r);
+    $("shared-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
     $("tables").innerHTML = r.tables.map((t) => {
       const notes = r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id);
       return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3>${t.subtitle ? `<p class="table-sub">${esc(t.subtitle)}</p>` : ""}<div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
@@ -365,11 +366,8 @@
     }).join("");
     const defs = r.report.definitions || [];
     $("definitions").innerHTML = defs.length ? `<div class="card defs"><h3>Reporting definitions</h3>${defs.map((d) => `${d.heading ? `<h4>${esc(d.heading)}</h4>` : ""}${d.text.split("\n").filter((x) => x.trim()).map((x) => `<p>${esc(x)}</p>`).join("")}`).join("")}</div>` : "";
-    document.querySelectorAll("[data-change]").forEach((b) => (b.onclick = () => openChange(b)));
-    document.querySelectorAll("[data-option]").forEach((b) => (b.onclick = () => {
-      const n = r.notes.find((x) => x.id === b.dataset.option), o = n?.options?.[Number(b.dataset.i)];
-      if (o) submitCorrection(`Regarding note ${n.id} ("${n.text}"): the user chose "${o.label}". ${o.instruction || ""}`.trim());
-    }));
+    document.querySelectorAll("#review [data-change]").forEach((b) => (b.onclick = () => openChange(b)));
+    bindConsiderations(r);
     $("tech").open = false;
     $("tech-body").textContent = "Loading…";
   }
@@ -420,24 +418,69 @@
     if (e.key === "Enter" && e.target.matches?.("td[data-how]")) showExplain(e.target);
   });
 
-  // The few choices and data checks worth a look, as optional refinements with one-click options.
+  // The few choices and data checks worth a look. The person picks an answer for any of them,
+  // and one Recalculate at the end sends every answer together.
   function considerationsHtml(key, r) {
     if (!key.length) return "";
     const counted = key.filter((n) => n.kind === "assumption"), data = key.filter((n) => n.kind !== "assumption");
     const item = (n) => {
       const tag = n.question ? ["q", "Question"] : n.kind === "assumption" ? ["a", "Choice"] : ["w", "Data check"];
       const a = affects(n, r);
-      const opts = (n.options || []).map((o, i) => i === 0 && /^keep\b/i.test(o.label)
-        ? `<button type="button" class="secondary chosen" disabled>${esc(o.label)}</button>`
-        : `<button type="button" class="secondary" data-option="${esc(n.id)}" data-i="${i}">${esc(o.label)}</button>`).join("");
+      const opts = n.options || [];
+      const keeps = opts.length && /^keep\b/i.test(opts[0].label);
+      const buttons = opts.map((o, i) => `<button type="button" class="secondary${i === 0 && keeps ? " chosen" : ""}" data-pick="${i}" aria-pressed="${i === 0 && keeps}">${esc(o.label)}</button>`).join("");
       return `<div class="item" data-note="${esc(n.id)}"><span class="tag ${tag[0]}">${tag[1]}</span><div>
         <p>${esc(n.text)}</p>${n.question ? `<p class="small">${esc(n.question)}</p>` : ""}${a ? `<p class="small muted">Affects: ${esc(a)}</p>` : ""}
-        <div class="opts">${opts}<button type="button" class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">${opts ? "Something else…" : "Change"}</button></div></div></div>`;
+        <div class="opts">${buttons}<button type="button" class="link" data-pick="other" aria-pressed="false">${opts.length ? "Something else…" : "Change"}</button></div>
+        <textarea class="other" rows="2" placeholder="What should be done instead?" hidden></textarea></div></div>`;
     };
     const section = (title, list) => (list.length ? `<h4>${title}</h4>${list.map(item).join("")}` : "");
     return `<div class="card considerations"><h3>Some considerations to check</h3>
-      <p class="muted lead">Optional refinements. The tables are ready as they are; choose an option only if you'd like a different approach, and the affected figures are recalculated.</p>
-      ${section("Who was counted", counted)}${section("Things noticed in the data", data)}</div>`;
+      <p class="muted lead">Optional refinements. The tables are ready as they are. To use a different approach, pick an answer for any of these, then press Recalculate once at the end; all your answers are applied together.</p>
+      ${section("Who was counted", counted)}${section("Things noticed in the data", data)}
+      <div class="recalc"><button type="button" class="primary" id="recalc-all" disabled>Recalculate</button><span class="muted" id="recalc-count">Nothing changed yet.</span></div></div>`;
+  }
+  function bindConsiderations(r) {
+    const box = document.querySelector("#considerations .considerations");
+    if (!box) return;
+    const picks = {};  // note id -> option index or "other"; unpicked notes keep the current approach
+    const changes = () => [...box.querySelectorAll(".item")].map((el) => {
+      const n = r.notes.find((x) => x.id === el.dataset.note), p = picks[n.id];
+      const opts = n.options || [], keeps = opts.length && /^keep\b/i.test(opts[0].label);
+      if (p === undefined || (p === 0 && keeps)) return null;
+      if (p === "other") {
+        const t = el.querySelector("textarea").value.trim();
+        return t ? { n, text: t } : null;
+      }
+      return { n, label: opts[p].label, instruction: opts[p].instruction || "" };
+    }).filter(Boolean);
+    const refresh = () => {
+      const c = changes();
+      $("recalc-all").disabled = !c.length;
+      $("recalc-count").textContent = c.length ? `${c.length} change${c.length > 1 ? "s" : ""} will be applied together.` : "Nothing changed yet.";
+    };
+    box.querySelectorAll(".item").forEach((el) => {
+      const id = el.dataset.note, ta = el.querySelector("textarea");
+      el.querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => {
+        const v = b.dataset.pick === "other" ? "other" : Number(b.dataset.pick);
+        picks[id] = v;
+        el.querySelectorAll("[data-pick]").forEach((x) => { const on = x === b; x.classList.toggle("chosen", on && x.dataset.pick !== "other"); x.setAttribute("aria-pressed", on); });
+        ta.hidden = v !== "other";
+        if (v === "other") ta.focus();
+        refresh();
+      }));
+      ta.oninput = refresh;
+    });
+    $("recalc-all").onclick = () => {
+      const c = changes();
+      if (!c.length) return;
+      const short = (t) => (t.length > 220 ? t.slice(0, 217) + "..." : t);
+      const lines = c.map((x, i) => `${i + 1}. Note ${x.n.id} ("${short(x.n.text)}"): ` +
+        (x.text ? `the user wants: ${x.text}` : `the user chose "${x.label}". ${x.instruction}`.trim()));
+      const kept = r.notes.filter((n) => n.key && !c.some((x) => x.n.id === n.id)).map((n) => n.id);
+      submitCorrection(`The user reviewed "Some considerations to check" and made these choices together. Apply all of them in this one recalculation:\n${lines.join("\n")}` +
+        (kept.length ? `\nKeep the current approach for the other considerations (${kept.join(", ")}).` : ""));
+    };
   }
   function noteHtml(n, affected = "") {
     return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind, n.key))}</div><div>${esc(n.text)}</div>

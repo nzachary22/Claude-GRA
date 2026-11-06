@@ -131,7 +131,7 @@ table.report td[title] { cursor: help; }
 .tag.w { background: var(--warn-bg); color: var(--gap); border: 1px solid var(--warn-line); }
 .opts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .opts button { font-size: 13px; padding: 5px 12px; }
-.opts .chosen { border-color: var(--accent); background: var(--head); font-weight: 600; cursor: default; opacity: 1; }
+.opts .chosen { border-color: var(--accent); background: var(--head); font-weight: 600; opacity: 1; }
 .more-list { margin: 0; padding-left: 18px; }
 .more-list li { margin: 4px 0; }
 .demo-box { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 14px; }
@@ -154,3 +154,6 @@ td.explainable:hover, td.explainable:focus { outline: 2px solid var(--accent); o
 .demo-ready p { margin: 0 0 10px; }
 #upload.demo-step .drop { border-color: var(--accent); border-style: solid; background: var(--head); }
 #upload.demo-step .actions, #upload.demo-step .estimate, #upload.demo-step .saved-line { display: none; }
+.considerations .other { width: 100%; margin-top: 8px; }
+.considerations .recalc { display: flex; gap: 12px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.considerations .link[aria-pressed="true"] { font-weight: 600; }
