@@ -104,3 +104,19 @@ def test_guide_shows_percent_missing(tiny_db):
     assert [c.text for c in grid.rows[0].cells][-1] == "% missing"
     gender = next(r for r in grid.rows if r.cells[0].text == "Gender")
     assert gender.cells[3].text == "1" and gender.cells[4].text == "2%"  # 1 of 59 blank
+
+
+def test_sample_report_link_opens_the_pdf():
+    from pathlib import Path
+    from urllib.parse import unquote
+
+    from fastapi.testclient import TestClient
+
+    from gra.server import create_app
+
+    html = (Path(__file__).resolve().parents[1] / "gra" / "static" / "index.html").read_text()
+    href = html.split('id="sample-report" href="')[1].split('"')[0]
+    res = TestClient(create_app(lambda: None)).get(href)
+    assert res.status_code == 200 and res.headers["content-type"] == "application/pdf"
+    assert "attachment" not in res.headers.get("content-disposition", "")
+    assert unquote(href).endswith("annual report.pdf")
