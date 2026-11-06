@@ -189,3 +189,14 @@ def test_whole_row_gap_needs_a_reason_and_no_cells(tiny_db):
             raise AssertionError("expected a problem")
         except Exception as e:  # TableSpecError
             assert expected in str(e)
+
+
+def test_report_name_from_a_retried_submission_is_kept(tiny_db):
+    session, _ = make(tiny_db, [
+        QUERY,
+        [("submit_tables", {"report": {"organization": "Example Center", "title": "Annual report"},
+                            "tables": [table("a"), broken("b")]})],
+        [("submit_tables", {"tables": [table("b")]})],
+    ])
+    session.run()
+    assert session.report == {"organization": "Example Center", "title": "Annual report"}

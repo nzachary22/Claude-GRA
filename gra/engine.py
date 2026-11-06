@@ -36,6 +36,7 @@ class Note:
     text: str
     tables: list[str]
     how_to_change: str = ""
+    collect: str = ""  # for the team's data collection guide: what staff should ask for or record
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -73,6 +74,7 @@ Reporting rules:
 - An amount summed over records that exist but whose amount field is blank on every one (for example wages recovered on closed cases with no wages entered): if the reference report shows 0 (or $0) for such a row, follow it and report 0 (for example with COALESCE(SUM(...), 0)), and record a note of kind "assumption" saying the amount field was blank on those records. If the report gives no such precedent, bind the cell as a gap with a note of kind "gap". This is the only case where blank amounts become zero.
 - Reconcile before submitting: check that detail rows add up to totals and that related tables describe the same population.
 - Keep notes short and written for a non-technical grant manager; no SQL in notes.
+- For every "gap" note, and for warnings about inconsistent data entry, also give "collect": one instruction for front-line staff saying what to ask clients for or record, and in which field of the data, so future reports can be completed. The app turns these into a data collection guide the user shares with their team.
 
 Submitting tables:
 - In submit_tables, every numeric cell is bound to a query result: {"query": "Q3", "match": {"column": "value", ...}, "column": "n"}. The app looks the value up itself. Use "missing_means_zero": true when the query is a count and a missing group genuinely means zero.
@@ -119,6 +121,7 @@ TOOLS = [
                 "text": {"type": "string", "description": "One or two plain sentences."},
                 "tables": {"type": "array", "items": {"type": "string"}, "description": "Ids of affected tables."},
                 "how_to_change": {"type": "string", "description": "How a user could correct this, in plain language."},
+                "collect": {"type": "string", "description": "For gaps and data-entry problems: one plain instruction for front-line staff on what to ask clients for or record, and in which field, e.g. 'Ask every client their ethnicity at intake and record it in the Client Profile - Ethnicity field.' Field names only; never client details."},
             },
             "required": ["id", "kind", "text", "tables"],
         },
@@ -212,6 +215,7 @@ class ReportSession:
         self._draft: dict[str, Table] = {}  # tables saved so far in this round, in report order
         self._attempts: dict[str, int] = {}  # failed attempts per table in this round
         self._order: list[str] = []  # report order of every table seen in this round, saved or not
+        self._pending_report: dict | None = None  # report name from an earlier submission in this round
         self.notes: dict[str, Note] = {}
         self.report: dict = {}
         self.events: list[Event] = []
@@ -289,6 +293,7 @@ class ReportSession:
         with self._lock:
             self._draft = {t.id: t for t in self.tables}
             self._order = list(self._draft)
+            self._pending_report = None
             self._attempts = {}
         self.status = "running"
         self.error = None
@@ -392,7 +397,7 @@ class ReportSession:
             return "A note needs kind (assumption, gap or warning) and text.", True
         nid = str(args.get("id") or f"N{len(self.notes) + 1}")
         note = Note(nid, kind, str(args["text"]), [str(t) for t in args.get("tables") or []],
-                    str(args.get("how_to_change") or ""))
+                    str(args.get("how_to_change") or ""), str(args.get("collect") or "")[:500])
         with self._lock:
             self.notes[nid] = note
         self._emit("note", f"Recorded {kind}: {note.text[:120]}")
@@ -401,6 +406,10 @@ class ReportSession:
     def _submit(self, args) -> tuple[str, bool, bool]:
         results = {r.query_id: r for r in self.gate.log}
         report = args.get("report")
+        if isinstance(report, dict):
+            self._pending_report = report  # kept if this submission must be retried without it
+        else:
+            report = self._pending_report
         period = report.get("period") if isinstance(report, dict) else None
         if period is not None:
             period, problem = _period(period)
@@ -494,8 +503,9 @@ class ReportSession:
                                "partly completed; check its note for what was left out.", [table.id],
                                "Run the report again, or ask for the full table with a correction.")
 
-    def _add_app_note(self, nid: str, kind: str, text: str, tables: list[str], how_to_change: str):
-        self.notes[nid] = Note(nid, kind, text, tables, how_to_change)
+    def _add_app_note(self, nid: str, kind: str, text: str, tables: list[str], how_to_change: str,
+                      collect: str = ""):
+        self.notes[nid] = Note(nid, kind, text, tables, how_to_change, collect)
         self.activity.add("note", "local", id=nid, kind_of_note=kind, text=text, tables=tables)
 
 

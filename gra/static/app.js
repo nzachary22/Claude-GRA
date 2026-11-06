@@ -244,6 +244,8 @@
     $("dl-word").href = `/api/runs/${r.id}/export.docx`;
     $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
     $("dl-log").href = `/api/runs/${r.id}/activity-report`;
+    $("dl-quality").href = `/api/runs/${r.id}/data-quality`;
+    $("dl-quality").hidden = !r.data_gaps;
     const scope = noteScope(r);
     $("general-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
     $("tables").innerHTML = r.tables.map((t) => {
