@@ -327,7 +327,7 @@ def test_real_openai_library_sends_the_expected_request(tiny_db, tmp_path):
     response = {"id": "resp_1", "object": "response", "created_at": 0, "model": "gpt-6.1-sol", "status": "completed",
                 "output": [{"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc"},
                            {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "submit_tables",
-                            "arguments": json.dumps({"tables": [gender_table()]}), "status": "completed"}],
+                            "arguments": json.dumps({"tables": [gender_table()], "report_tables": [{"id": "t1", "title": "Clients by gender"}]}), "status": "completed"}],
                 "parallel_tool_calls": True, "tool_choice": "auto", "tools": [], "incomplete_details": None,
                 "error": None, "instructions": None, "metadata": {}, "temperature": 1.0, "top_p": 1.0}
 

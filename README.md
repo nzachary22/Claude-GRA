@@ -10,7 +10,7 @@ Workflow: **Upload → Prepare automatically → Review**, with Copy, Word and E
 
 ## Running it
 
-Requirements: Windows or a Mac (macOS 12 or newer), Python 3.11 or newer from [python.org](https://www.python.org/downloads/), an API key from Anthropic (Claude) or OpenAI, and an internet connection while preparing a report. Reports are prepared with Claude Sonnet 5.5 (Anthropic) or GPT-6.1 Sol at very high reasoning (OpenAI); a typical report costs about $1 or less in API usage. Download `grant-reporting-assistant-1.5.0.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases); the same zip works on both.
+Requirements: Windows or a Mac (macOS 12 or newer), Python 3.11 or newer from [python.org](https://www.python.org/downloads/), an API key from Anthropic (Claude) or OpenAI, and an internet connection while preparing a report. Reports are prepared with Claude Sonnet 5.5 (Anthropic) or GPT-6.1 Sol at very high reasoning (OpenAI); a typical report costs about $1 or less in API usage. Download `grant-reporting-assistant-1.5.1.zip` from [Releases](https://github.com/nzachary22/Claude-GRA/releases); the same zip works on both.
 
 To look around first, press **Watch the demo** on the upload screen: it runs a recorded example on a fictional organization's report and made-up records, with no API key, no cost and nothing sent anywhere. An API key is only needed when you prepare a report from your own files.
 
@@ -29,7 +29,7 @@ To update, replace the program folder with the new version and run `start.bat`; 
 ### Mac
 
 1. Install Python with the macOS installer from [python.org](https://www.python.org/downloads/macos/).
-2. Open the downloaded zip (Safari usually unzips it by itself) and move the **grant-reporting-assistant-1.5.0** folder to your Documents folder. Avoid iCloud Drive, Google Drive or Dropbox folders.
+2. Open the downloaded zip (Safari usually unzips it by itself) and move the **grant-reporting-assistant-1.5.1** folder to your Documents folder. Avoid iCloud Drive, Google Drive or Dropbox folders.
 3. Double-click `start.command`. If the Mac says it cannot check the file for malicious software, click **Done** (or **OK**), open **System Settings**, choose **Privacy & Security**, scroll down and click **Open Anyway** next to "start.command", then confirm. On macOS 14 or older, right-click `start.command`, choose **Open**, then **Open** again. If Terminal asks to access the Documents folder, click **Allow**.
 4. The first run sets up a private Python environment in `~/Library/Application Support/GrantReportingAssistant` (about a minute), adds a **Grant Reporting Assistant** app to the Applications folder in your home folder, shows it in Finder so you can drag it to the Dock, and opens the app at `http://127.0.0.1:8765/`. From then on, start the app from the Dock, Launchpad or Spotlight.
 5. Choose Anthropic (Claude) or OpenAI and paste your API key once; it is stored in the Mac Keychain.

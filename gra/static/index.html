@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
   <link rel="icon" href="/static/icon.ico">
-  <link rel="stylesheet" href="/static/style.css?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=18">
 </head>
 <body>
   <header class="top">
-    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.5</span></div>
+    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.5.1</span></div>
     <nav class="steps" aria-label="Progress">
       <span data-step="upload" class="active">1 Upload</span>
       <span data-step="prepare">2 Prepare</span>
@@ -22,7 +22,7 @@
     <!-- One-time setup -->
     <section id="setup" class="card" hidden>
       <h2 id="setup-title">One-time setup</h2>
-      <p class="whats-new" id="whats-new" hidden><b>New in V.1.5:</b> <b>Some considerations to check</b> at the top of the results lists the AI's main choices, questions about scope and anything that looks incomplete in your data, each with one-click options to refine the tables. Extra downloads, such as the Data collection guide, are now under <b>More downloads</b> below the tables. Click any figure to see how it was counted, save a run's choices for next time, and watch a <b>demo</b> with fictional data (no AI key needed).</p>
+      <p class="whats-new" id="whats-new" hidden><b>New in V.1.5:</b> <b>Some considerations to check</b>, below the tables, lists the AI's main choices, questions about scope and anything that looks incomplete in your data, each with options to choose; answer any of them and press Recalculate once to apply them all together. Extra downloads, such as the Data collection guide, are now under <b>More downloads</b> below the tables. Click any figure to see how it was counted, save a run's choices for next time, and watch a <b>demo</b> with fictional data (no AI key needed).</p>
       <div class="demo-box" id="demo-box">
         <div><strong>New to the app?</strong> Watch a demo with a fictional legal aid society's past report and made-up records. No AI key needed, and nothing leaves this computer.</div>
         <div class="demo-actions"><button type="button" id="demo" class="secondary">Watch the demo</button>
@@ -117,9 +117,10 @@
       </div>
       <p id="demo-banner" class="demo-banner" hidden>This is the recorded demo with fictional data. No AI service was used. To prepare a report from your own data, add your AI key in <button type="button" class="link" id="demo-settings">Settings</button> and upload your files.</p>
       <p id="review-msg" class="msg" role="status"></p>
-      <div id="general-notes"></div>
       <p id="save-line" class="muted save-line" hidden>Do you run this report often? <button type="button" id="save-choices" class="link">Save this run's choices for next time</button></p>
       <div id="tables"></div>
+      <div id="considerations"></div>
+      <div id="shared-notes"></div>
       <div id="definitions"></div>
       <div class="card more">
         <h3>More downloads</h3>
@@ -132,7 +133,7 @@
         <h3>Request a correction</h3>
         <p class="muted">Describe what should change in plain words, for example "count clients by county of residence, not office". Affected figures are recalculated.</p>
         <form id="correct-form">
-          <textarea id="correct-text" rows="3" required></textarea>
+          <textarea id="correct-text" rows="3" maxlength="4000" required></textarea>
           <button type="submit" class="primary">Recalculate</button>
         </form>
       </div>
@@ -143,6 +144,6 @@
     </section>
   </main>
   <div id="explain" class="explain" role="dialog" hidden></div>
-  <script src="/static/app.js?v=20"></script>
+  <script src="/static/app.js?v=22"></script>
 </body>
 </html>

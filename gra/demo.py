@@ -172,6 +172,7 @@ def steps(start, end, data_dir: Path):
                                       "report's freeze date rule says.",
                               "how_to_change": "Tell me a different cut-off date."}),
          ("submit_tables", {"tables": tables_spec(problems, outcomes),
+                            "report_tables": [{"id": t["id"], "title": t["title"]} for t in tables_spec(problems, outcomes)],
                             "report": {"organization": "Juniper Ridge Legal Aid Society",
                                        "title": "Annual civil legal assistance report",
                                        "subtitle": "Invented Housing Stability Grant · fictional sample"}})],

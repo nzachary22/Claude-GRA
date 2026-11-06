@@ -38,6 +38,7 @@ log = logging.getLogger("gra")
 STATIC = Path(__file__).parent / "static"
 # The fictional Juniper Ridge sample (synthetic data, invented organization) for trying the app safely.
 SAMPLE = Path(__file__).parent / "sample"
+MAX_CORRECTION = 12000  # several considerations answered together fit easily
 SAMPLE_REPORT = "Juniper Ridge 2025 annual report.pdf"
 SAMPLE_DATA = ("case_events.csv", "cases.csv", "clients.csv", "demographic_responses.csv", "outcome_codes.csv",
                "problem_codes.csv")
@@ -286,13 +287,15 @@ def create_app(model_factory=None) -> FastAPI:
         text = body.text.strip()
         if not text:
             raise HTTPException(400, "Describe the correction.")
+        if len(text) > MAX_CORRECTION:
+            raise HTTPException(400, "That correction is too long. Shorten it, or split it into two corrections.")
         if run.session.gate.contains_protected(text):
             raise HTTPException(400, "The correction mentions a name, ID or note from your client data, which would be "
                                      "sent to the AI. Describe the change without it.")
         run.cancel_requested = False
         run.status = "running"
         run.session.status = "running"
-        threading.Thread(target=_correct, args=(run, text[:4000]), daemon=True).start()
+        threading.Thread(target=_correct, args=(run, text), daemon=True).start()
         return {"ok": True}
 
     @app.delete("/api/runs/{run_id}")

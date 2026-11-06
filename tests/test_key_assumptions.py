@@ -214,3 +214,11 @@ def test_saved_choices_are_kept_and_reused(tiny_files, tmp_path, monkeypatch):
 def test_prompt_flags_big_swings_from_the_past_report():
     assert "200% or more" in SYSTEM_PROMPT and "at least one of the two figures is 10 or more" in SYSTEM_PROMPT
 
+
+
+def test_long_corrections_are_refused_not_cut(monkeypatch):
+    from gra import server
+    assert server.MAX_CORRECTION >= 8000
+    from pathlib import Path
+    src = Path(server.__file__).read_text()
+    assert "text[:4000]" not in src and "too long" in src
