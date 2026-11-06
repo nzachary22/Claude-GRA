@@ -454,10 +454,13 @@
       }
       return { n, label: opts[p].label, instruction: opts[p].instruction || "" };
     }).filter(Boolean);
+    // "Something else…" with an empty box is unfinished, not a quiet "keep".
+    const unfinished = () => [...box.querySelectorAll(".item")].filter((el) => picks[el.dataset.note] === "other" && !el.querySelector("textarea").value.trim()).length;
     const refresh = () => {
-      const c = changes();
-      $("recalc-all").disabled = !c.length;
-      $("recalc-count").textContent = c.length ? `${c.length} change${c.length > 1 ? "s" : ""} will be applied together.` : "Nothing changed yet.";
+      const c = changes(), open = unfinished();
+      $("recalc-all").disabled = !c.length || open > 0;
+      $("recalc-count").textContent = open ? `Describe what you'd like in the "Something else" box${open > 1 ? "es" : ""}, or pick another option.`
+        : c.length ? `${c.length} change${c.length > 1 ? "s" : ""} will be applied together.` : "Nothing changed yet.";
     };
     box.querySelectorAll(".item").forEach((el) => {
       const id = el.dataset.note, ta = el.querySelector("textarea");
@@ -473,7 +476,7 @@
     });
     $("recalc-all").onclick = () => {
       const c = changes();
-      if (!c.length) return;
+      if (!c.length || unfinished()) return;
       const short = (t) => (t.length > 220 ? t.slice(0, 217) + "..." : t);
       const lines = c.map((x, i) => `${i + 1}. Note ${x.n.id} ("${short(x.n.text)}"): ` +
         (x.text ? `the user wants: ${x.text}` : `the user chose "${x.label}". ${x.instruction}`.trim()));
