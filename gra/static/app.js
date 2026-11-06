@@ -432,7 +432,7 @@
       return `<div class="item" data-note="${esc(n.id)}"><span class="tag ${tag[0]}">${tag[1]}</span><div>
         <p>${esc(n.text)}</p>${n.question ? `<p class="small">${esc(n.question)}</p>` : ""}${a ? `<p class="small muted">Affects: ${esc(a)}</p>` : ""}
         <div class="opts">${buttons}<button type="button" class="link" data-pick="other" aria-pressed="false">${opts.length ? "Something else…" : "Change"}</button></div>
-        <textarea class="other" rows="2" placeholder="What should be done instead?" hidden></textarea></div></div>`;
+        <textarea class="other" rows="2" maxlength="1000" placeholder="What should be done instead?" hidden></textarea></div></div>`;
     };
     const section = (title, list) => (list.length ? `<h4>${title}</h4>${list.map(item).join("")}` : "");
     return `<div class="card considerations"><h3>Some considerations to check</h3>
