@@ -178,18 +178,18 @@ def to_quality_docx(tables: list[Table], notes: list[Note], catalog: Catalog, sq
     fields = field_completeness(catalog, sqls)
     if fields:
         doc.add_heading("How complete our records are", level=1)
-        doc.add_paragraph(f"These are the fields the report relied on, least complete first. Fields filled in on fewer "
-                          f"than {ATTENTION_BELOW:.0f}% of records are marked as needing attention.")
+        doc.add_paragraph(f"These are the fields the report relied on, most missing first. Fields missing on more "
+                          f"than {100 - ATTENTION_BELOW:.0f}% of records are marked as needing attention.")
         grid = doc.add_table(rows=1, cols=5)
         grid.style = "Light Grid Accent 1"
         repeat_header(grid.rows[0])
-        for cell, text in zip(grid.rows[0].cells, ("Field", "Data file", "Filled in", "Missing", "% filled")):
+        for cell, text in zip(grid.rows[0].cells, ("Field", "Data file", "Filled in", "Missing", "% missing")):
             cell.text = text
         for f in fields:
             cells = grid.add_row().cells
             flag = " (needs attention)" if f.percent < ATTENTION_BELOW else ""
             for cell, text in zip(cells, (f.field, f.source_file, f"{f.filled:,}", f"{f.missing:,}",
-                                          f"{f.percent:.0f}%{flag}")):
+                                          f"{100 - f.percent:.0f}%{flag}")):
                 cell.text = text
             for cell in cells[2:]:
                 cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT

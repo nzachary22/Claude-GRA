@@ -90,3 +90,17 @@ def test_fictional_sample_is_served_and_packed(tmp_path):
     assert br.SAMPLE_FILES <= set(br.program_files())
     assert "Synthetic demonstration edition" in (root / "gra" / "sample" / "README.txt").read_text() or \
         "SYNTHETIC" in (root / "gra" / "sample" / "README.txt").read_text()
+
+
+def test_guide_shows_percent_missing(tiny_db):
+    from tests.test_data_quality import GAP_NOTE, gap_table, run_with, text_of
+    from gra.data_quality import to_quality_docx
+
+    s = run_with(tiny_db, [[("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})],
+                           [GAP_NOTE, ("submit_tables", {"tables": [gap_table()]})]])
+    doc = Document(io.BytesIO(to_quality_docx(s.tables, list(s.notes.values()), s.gate.catalog,
+                                              [q.sql for q in s.gate.log], {}, ("2025-01-01", "2025-12-31"))))
+    grid = doc.tables[-1]
+    assert [c.text for c in grid.rows[0].cells][-1] == "% missing"
+    gender = next(r for r in grid.rows if r.cells[0].text == "Gender")
+    assert gender.cells[3].text == "1" and gender.cells[4].text == "2%"  # 1 of 59 blank
