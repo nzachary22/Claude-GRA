@@ -82,6 +82,7 @@ Submitting tables:
 - Subtotal and total rows use "sum_of_rows" (row indexes in the same table); total columns use "sum_of_columns". The app computes these.
 - Set display formats to match the report: "format" of number, percent or currency, plus "decimals", on a column, a row or a single cell (cell wins over row, row over column). Percent values are on a 0-100 scale. If the report shows 31.6% and $2,531,174, use percent with 1 decimal and currency with 0.
 - If the report's table has a header above its row labels (for example "Age at intake"), put it in "row_header".
+- Set each table's "orientation" to that of the page it appears on in the reference report (the page layout is given with the database description), so the exported tables match the original's layout.
 - Pass "report" with the organization name and report title as printed on the report, and a "subtitle" for its descriptive line if it has one, using the current period.
 - The current reporting period is set by the user. Only if the user's correction asks for a different period, pass the new one in "report"."period" as {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}, so the document heading, file names and activity report show it. Otherwise leave "period" out.
 - If the report has a section defining what the figures count (for example "What the figures count", "Reporting definitions" or a methodology page), reproduce it in "report"."definitions" as headed paragraphs, adapted to the current period (shifted dates, the new period). Definitions state rules, never results: do not put a calculated count or total in them. If a table, subtitle or note refers the reader to the definitions, include them.
@@ -167,6 +168,7 @@ TOOLS = [
                             "title": {"type": "string"},
                             "subtitle": {"type": "string", "description": "The table's descriptive line; figures must be {placeholders} bound in values."},
                             "row_header": {"type": "string", "description": "Header above the row labels, if the report has one."},
+                            "orientation": {"type": "string", "enum": ["portrait", "landscape"], "description": "The orientation of the page this table appears on in the reference report."},
                             "values": {"type": "object", "description": "Binds each {placeholder} to a query result, in the same form as a cell, with optional format and decimals."},
                             "note": {"type": "string", "description": "Caption or footnote reproduced from the report, adapted to the new period; figures must be {placeholders}."},
                             "columns": {"type": "array", "items": {"type": "object", "properties": {
@@ -205,11 +207,13 @@ class Event:
 
 class ReportSession:
     def __init__(self, gate: QueryGate, schema_text: str, document_blocks: list[dict], period: tuple[str, str],
-                 model: ModelClient, limits: Limits | None = None, activity_path=None):
+                 model: ModelClient, limits: Limits | None = None, activity_path=None,
+                 layout: tuple[str, str | None] = ("", None)):
         self.gate = gate
         self.model = model
         self.limits = limits or Limits()
         self.period = period
+        self.layout_text, self.page_orientation = layout  # reference report's page layout, read locally
         self.messages: list = [{"role": "user", "content": self._opening(schema_text, document_blocks, period)}]
         self.tables: list[Table] = []
         self._draft: dict[str, Table] = {}  # tables saved so far in this round, in report order
@@ -286,7 +290,8 @@ class ReportSession:
             f"CURRENT REPORTING PERIOD: {period[0]} to {period[1]} (inclusive).\n\n"
             "DATABASE DESCRIPTION (non-identifying; individual records are not available to you):\n\n"
             f"{schema_text}\n"
-            "Rebuild every table in the uploaded report for the current reporting period, then submit them.")})
+            + (f"REFERENCE REPORT PAGE LAYOUT:\n{self.layout_text}\n\n" if self.layout_text else "")
+            + "Rebuild every table in the uploaded report for the current reporting period, then submit them.")})
         return blocks
 
     def _loop(self):

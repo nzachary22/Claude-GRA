@@ -92,11 +92,13 @@ class Table:
     warnings: list[str] = field(default_factory=list)
     row_header: str = ""
     subtitle: str = ""
+    orientation: str = ""  # portrait | landscape, as on the reference report's page; "" if not given
 
     def to_dict(self) -> dict:
         return {
             "id": self.id, "title": self.title, "subtitle": self.subtitle, "note": self.note,
             "row_header": self.row_header, "headers": self.headers, "warnings": self.warnings,
+            "orientation": self.orientation,
             "rows": [{"label": r.label, "kind": r.kind, "indent": r.indent,
                       "cells": [{"value": c.value, "gap": c.gap, "source": c.source, "format": c.format,
                                  "decimals": c.decimals, "display": c.display} for c in r.cells]}
@@ -249,7 +251,8 @@ def _resolve_table(spec: dict, results, index: int) -> Table:
         raise TableSpecError(problems)
     return Table(id=str(spec.get("id") or f"t{index + 1}"), title=str(spec.get("title", "")),
                  note=note, headers=headers, rows=rows,
-                 row_header=str(spec.get("row_header") or ""), subtitle=subtitle)
+                 row_header=str(spec.get("row_header") or ""), subtitle=subtitle,
+                 orientation=spec.get("orientation") if spec.get("orientation") in ("portrait", "landscape") else "")
 
 
 def _apply_formats(rows, rows_spec, columns, problems):

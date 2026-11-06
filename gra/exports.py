@@ -98,7 +98,18 @@ def repeat_header(row) -> None:
     tr_pr.append(split)
 
 
-def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, report: dict | None = None) -> bytes:
+def table_orientation(t: Table, page_orientation: str | None = None) -> str:
+    """Match the reference report: the table's own page, else the report's single orientation,
+    else landscape for wide tables when the reference layout is mixed or unknown."""
+    if t.orientation in ("portrait", "landscape"):
+        return t.orientation
+    if page_orientation in ("portrait", "landscape"):
+        return page_orientation
+    return "landscape" if len(t.headers) > WIDE_TABLE_COLUMNS else "portrait"
+
+
+def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, report: dict | None = None,
+            page_orientation: str | None = None) -> bytes:
     from docx import Document
     from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -111,6 +122,11 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(10)
+    if page_orientation == "landscape":  # the reference report is landscape throughout
+        sec = doc.sections[0]
+        sec.orientation = WD_ORIENT.LANDSCAPE
+        if sec.page_width < sec.page_height:
+            sec.page_width, sec.page_height = sec.page_height, sec.page_width
     head, below = heading_lines(report or {}, title)
     doc.add_heading(head, level=0)
     for line in below:
@@ -143,7 +159,7 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
 
     for t in tables:
         wide = len(t.headers) > WIDE_TABLE_COLUMNS
-        orient(wide)
+        orient(table_orientation(t, page_orientation) == "landscape")
         doc.add_heading(t.title, level=1)
         if t.subtitle:
             doc.add_paragraph(t.subtitle).runs[0].italic = True
@@ -152,6 +168,15 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
         grid.alignment = WD_TABLE_ALIGNMENT.CENTER
         sec = doc.sections[-1]
         usable = sec.page_width - sec.left_margin - sec.right_margin
+        crowded = len(t.headers) > 8 and sec.page_width < sec.page_height
+        if crowded:  # many columns on a portrait page: tighter cell padding gives the text room
+            mar = OxmlElement("w:tblCellMar")
+            for side in ("left", "right"):
+                el = OxmlElement(f"w:{side}")
+                el.set(qn("w:w"), "43")
+                el.set(qn("w:type"), "dxa")
+                mar.append(el)
+            grid._tbl.tblPr.append(mar)
         repeat_header(grid.rows[0])
         hdr = grid.rows[0].cells
         size = header_font_size(len(t.headers))
@@ -178,10 +203,16 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
                     run.bold = True
                 shade(merged, "F2F2F2")
                 continue
+            if crowded:
+                for run in cells[0].paragraphs[0].runs:
+                    run.font.size = Pt(8)
             for i, c in enumerate(r.cells, start=1):
                 cells[i].text = display(c)
                 p = cells[i].paragraphs[0]
                 p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                if crowded:
+                    for run in p.runs:
+                        run.font.size = Pt(8)
                 if c.gap:
                     for run in p.runs:
                         run.font.color.rgb = RGBColor(0xC0, 0x50, 0x00)
@@ -230,7 +261,8 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
 
 # ---------------------------------------------------------------- Excel
 
-def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str, report: dict | None = None) -> bytes:
+def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str, report: dict | None = None,
+            page_orientation: str | None = None) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -249,6 +281,9 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str, rep
 
     for t in tables:
         ws = wb.create_sheet(_sheet_name(t.title or t.id, used))
+        ws.page_setup.orientation = table_orientation(t, page_orientation)
+        ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws["A1"] = t.title
         ws["A1"].font = Font(bold=True, size=13)
         ws["A2"] = t.subtitle or f"{head} · {period}"

@@ -97,3 +97,57 @@ def _xlsx_text(path: Path) -> str:
                 parts.append(" | ".join("" if v is None else str(v) for v in row))
     wb.close()
     return "\n".join(parts)
+
+
+def page_orientations(path: Path) -> list[str]:
+    """Orientation of each page (PDF), section (Word) or sheet (Excel), or [] when unknown.
+
+    Read locally so the exported tables can match the reference report's layout.
+    """
+    path = Path(path)
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
+            out = []
+            for page in PdfReader(path).pages:
+                w, h = float(page.mediabox.width), float(page.mediabox.height)
+                if (page.get("/Rotate") or 0) % 180:
+                    w, h = h, w
+                out.append("landscape" if w > h else "portrait")
+            return out
+        if suffix == ".docx":
+            from docx import Document
+            return ["landscape" if s.page_width and s.page_height and s.page_width > s.page_height else "portrait"
+                    for s in Document(path).sections]
+        if suffix in (".xlsx", ".xlsm"):
+            from openpyxl import load_workbook
+            wb = load_workbook(path, read_only=False)
+            return ["landscape" if ws.page_setup.orientation == "landscape" else "portrait" for ws in wb.worksheets]
+    except Exception:  # an unreadable layout only means no layout hint
+        return []
+    return []
+
+
+def layout_summary(paths: list[Path]) -> tuple[str, str | None]:
+    """A plain description of the reference documents' page layout, and the single
+    orientation they all use ("portrait" or "landscape"), or None when mixed or unknown."""
+    lines, seen = [], set()
+    for path in paths:
+        pages = page_orientations(path)
+        if not pages:
+            continue
+        seen.update(pages)
+        unit = {".docx": "section", ".xlsx": "sheet", ".xlsm": "sheet"}.get(Path(path).suffix.lower(), "page")
+        if len(set(pages)) == 1:
+            lines.append(f"{Path(path).name}: {len(pages)} {unit}(s), all {pages[0]}")
+        else:
+            runs, start = [], 0
+            for i in range(1, len(pages) + 1):
+                if i == len(pages) or pages[i] != pages[start]:
+                    span = f"{start + 1}" if i - 1 == start else f"{start + 1}-{i}"
+                    runs.append(f"{unit}s {span} {pages[start]}")
+                    start = i
+            lines.append(f"{Path(path).name}: " + "; ".join(runs))
+    single = next(iter(seen)) if len(seen) == 1 else None
+    return "\n".join(lines), single

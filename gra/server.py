@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from . import __version__
 from .activity import read_events, render_text, sent_text
 from .activity_report import to_report_docx
-from .documents import scan_text, to_blocks
+from .documents import layout_summary, scan_text, to_blocks
 from .engine import ReportSession
 from .data_quality import has_gaps, to_quality_docx
 from .exports import to_docx, to_xlsx
@@ -328,10 +328,10 @@ def create_app(model_factory=None) -> FastAPI:
         period = f"{start} to {end}"
         stamp = end.replace("-", "")
         if fmt == "docx":
-            data = to_docx(tables, notes, title, period, run.session.report)
+            data = to_docx(tables, notes, title, period, run.session.report, run.session.page_orientation)
             media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         elif fmt == "xlsx":
-            data = to_xlsx(tables, notes, title, period, run.session.report)
+            data = to_xlsx(tables, notes, title, period, run.session.report, run.session.page_orientation)
             media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         else:
             raise HTTPException(404, "Unknown format.")
@@ -388,8 +388,9 @@ def _work(run: Run, factory):
         _check_reports(run, gate)
         _event(run, "status", "Connecting to the AI service")
         model = factory()
+        layout = layout_summary([run.folder / "report" / n for n in run.report_names])
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,
-                                    activity_path=run.folder / "activity.jsonl")
+                                    activity_path=run.folder / "activity.jsonl", layout=layout)
         run.status = "running"
         if run.cancel_requested:
             run.session.cancel()
