@@ -53,20 +53,48 @@ def action_notes(notes: list[Note]) -> list[Note]:
     return [n for n in notes if not n.id.startswith("app-") and (n.kind == "gap" or n.collect)]
 
 
+def display_titles(tables: list[Table]) -> dict[str, str]:
+    """A name for each table that tells apart tables sharing a title (for example three
+    "Employee Demographics" tables): add the subtitle, else the first column headers, else a number."""
+    names = {t.id: t.title or t.id for t in tables}
+    groups: dict[str, list[Table]] = {}
+    for t in tables:
+        groups.setdefault(names[t.id].lower(), []).append(t)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        for attempt in ("subtitle", "headers"):
+            labels = []
+            for t in group:
+                if attempt == "subtitle":
+                    labels.append((t.subtitle or "").strip())
+                else:
+                    labels.append(", ".join(h for h in t.headers[:3] if h).strip())
+            if all(labels) and len({x.lower() for x in labels}) == len(labels):
+                for t, label in zip(group, labels):
+                    names[t.id] = f"{names[t.id]} ({label})"
+                break
+        else:
+            for i, t in enumerate(group, start=1):
+                names[t.id] = f"{names[t.id]} ({i} of {len(group)})"
+    return names
+
+
 def table_statuses(tables: list[Table], notes: list[Note]) -> list[TableStatus]:
     incomplete = {t for n in notes if n.id.startswith("app-incomplete-") for t in n.tables}
+    names = display_titles(tables)
     out = []
     for t in tables:
         cells = [c for r in t.rows if r.kind != "heading" for c in r.cells]
         unavailable = sum(1 for c in cells if c.gap)
         available = sum(1 for c in cells if not c.gap and c.value is not None)
-        if t.id in incomplete and any(r.label == "Not completed" for r in t.rows):
+        if (t.id in incomplete and any(r.label == "Not completed" for r in t.rows)) or (unavailable and not available):
             status = "Not completed"
         elif unavailable or any(n.id == f"app-simplified-{t.id}" for n in notes):
             status = "Partly complete"
         else:
             status = "Complete"
-        out.append(TableStatus(t.title or t.id, available, unavailable, status))
+        out.append(TableStatus(names[t.id], available, unavailable, status))
     return out
 
 
@@ -124,7 +152,8 @@ def to_quality_docx(tables: list[Table], notes: list[Note], catalog: Catalog, sq
             item.add_run(n.collect or n.how_to_change or n.text).bold = True
             why = doc.add_paragraph(f"Why it matters: {n.text}")
             why.paragraph_format.left_indent = Pt(18)
-            named = [t.title for t in tables if t.id in n.tables]
+            names = display_titles(tables)
+            named = [names[t.id] for t in tables if t.id in n.tables]
             if named:
                 aff = doc.add_paragraph(f"Affects: {'; '.join(named)}")
                 aff.paragraph_format.left_indent = Pt(18)
@@ -149,18 +178,18 @@ def to_quality_docx(tables: list[Table], notes: list[Note], catalog: Catalog, sq
     fields = field_completeness(catalog, sqls)
     if fields:
         doc.add_heading("How complete our records are", level=1)
-        doc.add_paragraph(f"These are the fields the report relied on, least complete first. Fields filled in on fewer "
-                          f"than {ATTENTION_BELOW:.0f}% of records are marked as needing attention.")
+        doc.add_paragraph(f"These are the fields the report relied on, most missing first. Fields missing on more "
+                          f"than {100 - ATTENTION_BELOW:.0f}% of records are marked as needing attention.")
         grid = doc.add_table(rows=1, cols=5)
         grid.style = "Light Grid Accent 1"
         repeat_header(grid.rows[0])
-        for cell, text in zip(grid.rows[0].cells, ("Field", "Data file", "Filled in", "Missing", "% filled")):
+        for cell, text in zip(grid.rows[0].cells, ("Field", "Data file", "Filled in", "Missing", "% missing")):
             cell.text = text
         for f in fields:
             cells = grid.add_row().cells
             flag = " (needs attention)" if f.percent < ATTENTION_BELOW else ""
             for cell, text in zip(cells, (f.field, f.source_file, f"{f.filled:,}", f"{f.missing:,}",
-                                          f"{f.percent:.0f}%{flag}")):
+                                          f"{100 - f.percent:.0f}%{flag}")):
                 cell.text = text
             for cell in cells[2:]:
                 cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT

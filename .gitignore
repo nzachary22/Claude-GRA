@@ -13,6 +13,9 @@ appdata/
 *.xls
 *.csv
 *.pdf
+# ...except the fictional sample shipped with the app (synthetic data, invented organization)
+!gra/sample/*.csv
+!gra/sample/*.pdf
 
 # Synthetic test packages (kept local only)
 juniper-ridge-legal-aid-society/

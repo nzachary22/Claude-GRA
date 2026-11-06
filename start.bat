@@ -1,5 +1,5 @@
 @echo off
-rem Grant Reporting Assistant V.1.3 - starts the local app and opens the browser.
+rem Grant Reporting Assistant V.1.5 - starts the local app and opens the browser.
 rem Setup runs on first use, and again whenever this folder moves or a new version
 rem changes the requirements. The Python environment lives outside this folder.
 rem Setup also puts a "Grant Reporting Assistant" shortcut on the desktop and in

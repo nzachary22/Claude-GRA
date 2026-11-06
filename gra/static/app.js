@@ -7,12 +7,12 @@
   const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (cell) => cell.display ?? "";
-  const kindLabel = (k) => ({ assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
+  const kindLabel = (k, key) => (key ? ({ assumption: "Consideration", gap: "Data check", warning: "Data check" }[k] || "Note") : { assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
   // A note about one table sits beside it; anything broader is shown once, above the tables.
   const noteScope = (r) => {
     const ids = new Set(r.tables.map((t) => t.id));
     const single = (n) => n.tables.length === 1 && ids.has(n.tables[0]);
-    return { single, shared: r.notes.filter((n) => !single(n)) };
+    return { single: (n) => !n.key && single(n), key: r.notes.filter((n) => n.key), shared: r.notes.filter((n) => !n.key && !single(n)) };
   };
   const affects = (n, r) => {
     const named = r.tables.filter((t) => n.tables.includes(t.id)).map((t) => t.title);
@@ -57,17 +57,19 @@
     const s = await api("/api/status");
     state.status = s;
     if (s.version) document.querySelector(".ver").textContent = "V." + s.version.replace(/\.0$/, "");
-    if (!s.has_key) $("setup").hidden = false;  // a panel the user opened stays open
+    // No key is asked for until someone prepares a report of their own; the demo needs none.
     $("setup-title").textContent = s.has_key ? "Settings" : "One-time setup";
-    $("setup-close").hidden = !s.has_key;
+    $("setup-close").hidden = false;
     const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
     if (radio && !state.providerTouched) radio.checked = true;
     showProvider(s);
+    if (typeof showEstimate === "function") showEstimate();
     return s;
   }
   const closeSetup = () => { $("setup").hidden = true; $("whats-new").hidden = true; };
   $("settings-btn").onclick = () => { if ($("setup").hidden) $("setup").hidden = false; else closeSetup(); };
   $("setup-close").onclick = closeSetup;
+  $("demo-settings").onclick = () => { $("setup").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
   $("providers").onchange = async () => {
     state.providerTouched = true;
     showProvider(state.status);
@@ -103,6 +105,15 @@
   $("period-start").value = `${lastYear}-01-01`;
   $("period-end").value = `${lastYear}-12-31`;
 
+  const setters = {};
+  // A rough guide before anything is sent, from earlier runs: most reports take a few minutes and about $1.
+  function showEstimate() {
+    const p = state.status?.provider === "openai" ? "OpenAI" : "Anthropic";
+    const big = state.reportFiles.reduce((n, f) => n + f.size, 0) > 3 * 1048576 || state.reportFiles.length > 2;
+    $("estimate").textContent = state.reportFiles.length && state.dataFiles.length
+      ? `Estimate: usually ${big ? "5 to 15" : "3 to 10"} minutes and ${big ? "about $1 to $3" : "about $1 or less"} in AI charges, billed by ${p} to your account. Reports with many tables, and each correction you request, take longer and cost more.`
+      : "";
+  }
   function bindDrop(zoneId, inputId, listId, key) {
     const zone = $(zoneId), input = $(inputId);
     const render = () => {
@@ -114,6 +125,8 @@
       $("preview-body").hidden = true;  // a preview of other files would mislead
       state.previewToken = (state.previewToken || 0) + 1;  // and one still loading is discarded
       msg("upload-msg", "");
+      showEstimate();
+      if (typeof suggestSaved === "function") suggestSaved();
     };
     const set = (files) => {
       // A file chosen again replaces the earlier copy of the same name, so a corrected export is never ignored.
@@ -121,6 +134,7 @@
       state[key] = [...state[key].filter((f) => !names.has(f.name)), ...files];
       render();
     };
+    setters[key] = set;
     // The list sits inside the clickable box, so its buttons must not open the file picker.
     $(listId).onclick = (e) => {
       const btn = e.target.closest("button");
@@ -138,17 +152,84 @@
   bindDrop("drop-report", "report-files", "report-list", "reportFiles");
   bindDrop("drop-data", "data-files", "data-list", "dataFiles");
 
+  $("sample").onclick = async () => {
+    msg("upload-msg", "Loading the fictional sample…");
+    try {
+      const s = await api("/api/sample");
+      const load = async (names) => Promise.all(names.map(async (n) => {
+        const res = await fetch(`/api/sample/${encodeURIComponent(n)}`);
+        if (!res.ok) throw new Error("The sample files could not be loaded.");
+        return new File([await res.blob()], n, { type: res.headers.get("content-type") || "" });
+      }));
+      const [report, data] = await Promise.all([load(s.report), load(s.data)]);
+      state.reportFiles = []; state.dataFiles = [];
+      setters.reportFiles(report); setters.dataFiles(data);
+      $("period-start").value = s.period[0]; $("period-end").value = s.period[1];
+      msg("upload-msg", `Loaded ${s.name}: last year's report and this year's made-up records. Press Prepare report to see the full process.`, "ok");
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+  };
+
+  $("save-choices").onclick = async () => {
+    try {
+      const res = await api(`/api/runs/${state.runId}/save-choices`, { method: "POST" });
+      $("save-choices").textContent = `Saved ${res.count} choice(s). They'll be offered when you next prepare this report.`;
+      $("save-choices").disabled = true;
+      loadSavedChoices();
+    } catch (err) { msg("review-msg", err.message, "err"); }
+  };
+  async function loadSavedChoices() {
+    let list = [];
+    try { list = await api("/api/saved-choices"); } catch { list = []; }
+    state.saved = list;
+    const sel = $("saved-choices"), keep = sel.value;
+    sel.innerHTML = `<option value="">None</option>` + list.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} (${c.count} choice${c.count === 1 ? "" : "s"}, saved ${esc(c.saved_at)})</option>`).join("");
+    sel.value = list.some((c) => c.id === keep) ? keep : "";
+    $("saved-line").hidden = !list.length;
+    suggestSaved();
+  }
+  // Offer the saved choices of the same report automatically, matched by its file name; the user can switch to None.
+  function suggestSaved() {
+    const names = new Set(state.reportFiles.map((f) => f.name));
+    const hit = (state.saved || []).find((c) => (c.report_files || []).some((n) => names.has(n)));
+    if (hit && !$("saved-choices").dataset.touched) $("saved-choices").value = hit.id;
+    $("forget-choices").hidden = !$("saved-choices").value;
+  }
+  $("saved-choices").onchange = () => { $("saved-choices").dataset.touched = "1"; $("forget-choices").hidden = !$("saved-choices").value; };
+  $("forget-choices").onclick = async () => {
+    const id = $("saved-choices").value;
+    if (!id || !confirm("Forget these saved choices?")) return;
+    await api(`/api/saved-choices/${id}`, { method: "DELETE" }).catch(() => {});
+    loadSavedChoices();
+  };
+  loadSavedChoices();
+
+  $("demo").onclick = async () => {
+    $("demo").disabled = true;
+    try {
+      const { id } = await api("/api/demo", { method: "POST" });
+      msg("upload-msg", "");
+      startPolling(id);
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+    finally { $("demo").disabled = false; }
+  };
+
   $("start").onclick = async () => {
     $("start").disabled = true;
     msg("upload-msg", "Uploading…");
     const s = await checkStatus();
-    if (!s.has_key) { msg("upload-msg", "Add your API key above first.", "err"); $("start").disabled = false; return; }
+    if (!s.has_key) {
+      $("setup").hidden = false;
+      msg("upload-msg", "To prepare a report from these files, add an AI key in the setup panel above. To look around first, watch the demo; it needs no key.", "err");
+      $("setup").scrollIntoView({ behavior: "smooth" });
+      $("start").disabled = false; return;
+    }
     closeSetup();
     const form = new FormData();
     state.reportFiles.forEach((f) => form.append("report_files", f));
     state.dataFiles.forEach((f) => form.append("data_files", f));
     form.append("period_start", $("period-start").value);
     form.append("period_end", $("period-end").value);
+    if ($("saved-choices").value) form.append("saved_choices", $("saved-choices").value);
     try {
       const { id } = await api("/api/runs", { method: "POST", body: form });
       msg("upload-msg", "");
@@ -238,6 +319,11 @@
   function renderReview(r) {
     state.last = r;
     show("review");
+    $("demo-banner").hidden = !r.demo;
+    $("review").classList.toggle("demo", !!r.demo);
+    $("save-line").hidden = !!r.demo || !(r.corrections || r.notes.some((n) => n.key && n.kind === "assumption"));
+    $("save-choices").disabled = false; $("save-choices").textContent = "Save this run's choices for next time";
+    $("correct-form").closest(".card").hidden = !!r.demo;
     const gaps = r.tables.reduce((n, t) => n + t.rows.reduce((m, row) => m + row.cells.filter((c) => c.gap).length, 0), 0);
     $("review-title").textContent = r.report.organization || r.report.title || "Draft tables";
     const reportLine = [r.report.organization ? r.report.title : "", r.report.subtitle].filter(Boolean).join(" · ");
@@ -246,9 +332,9 @@
     $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
     $("dl-log").href = `/api/runs/${r.id}/activity-report`;
     $("dl-quality").href = `/api/runs/${r.id}/data-quality`;
-    $("dl-quality").hidden = !r.data_gaps;
+    $("quality-item").hidden = !r.data_gaps;
     const scope = noteScope(r);
-    $("general-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
+    $("general-notes").innerHTML = considerationsHtml(scope.key, r) + (scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "");
     $("tables").innerHTML = r.tables.map((t) => {
       const notes = r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id);
       return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3>${t.subtitle ? `<p class="table-sub">${esc(t.subtitle)}</p>` : ""}<div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
@@ -257,6 +343,10 @@
     const defs = r.report.definitions || [];
     $("definitions").innerHTML = defs.length ? `<div class="card defs"><h3>Reporting definitions</h3>${defs.map((d) => `${d.heading ? `<h4>${esc(d.heading)}</h4>` : ""}${d.text.split("\n").filter((x) => x.trim()).map((x) => `<p>${esc(x)}</p>`).join("")}`).join("")}</div>` : "";
     document.querySelectorAll("[data-change]").forEach((b) => (b.onclick = () => openChange(b)));
+    document.querySelectorAll("[data-option]").forEach((b) => (b.onclick = () => {
+      const n = r.notes.find((x) => x.id === b.dataset.option), o = n?.options?.[Number(b.dataset.i)];
+      if (o) submitCorrection(`Regarding note ${n.id} ("${n.text}"): the user chose "${o.label}". ${o.instruction || ""}`.trim());
+    }));
     $("tech").open = false;
     $("tech-body").textContent = "Loading…";
   }
@@ -265,21 +355,75 @@
     const body = t.rows.map((row) => {
       if (row.kind === "heading") return `<tr class="heading"><td colspan="${t.headers.length + 1}">${esc(row.label)}</td></tr>`;
       const pad = row.indent ? ` style="padding-left:${9 + row.indent * 16}px"` : "";
-      return `<tr class="${row.kind}"><td${pad}>${esc(row.label)}</td>${row.cells.map((c) => {
-        const tip = c.gap ? c.gap : c.source ? `From ${c.source}` : "";
-        return `<td class="num${c.gap ? " gap" : ""}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(fmt(c))}</td>`;
+      return `<tr class="${row.kind}"><td${pad}>${esc(row.label)}</td>${row.cells.map((c, ci) => {
+        const how = c.gap || c.how ? ` data-how="${esc(t.id)}|${t.rows.indexOf(row)}|${ci}" tabindex="0"` : "";
+        return `<td class="num${c.gap ? " gap" : ""}${c.how ? " explainable" : ""}"${how}>${esc(fmt(c))}</td>`;
       }).join("")}</tr>`;
     }).join("");
     return `<table class="report">${head}<tbody>${body}</tbody></table>`;
   }
+  // "How was this counted?": a plain description of where a figure came from. No records are shown.
+  const human = (k) => String(k).replace(/_/g, " ");
+  function explainText(r, t, row, c) {
+    if (c.gap) return `<b>Not available.</b> ${esc(c.gap)}`;
+    const h = c.how || {};
+    if (h.sum_of) return `<b>${esc(fmt(c))}</b> is the total of: ${h.sum_of.map((x) => esc(x || "(unnamed)")).join(", ")}.`;
+    if (!h.query) return "";
+    const purpose = (r.purposes || {})[h.query] || "A calculation on your data";
+    const where = Object.entries(h.match || {}).map(([k, v]) => `${esc(human(k))} is “${esc(v)}”`).join(" and ");
+    return `<b>${esc(fmt(c))}</b> · ${esc(row.label)}${t.headers.length > 1 ? ` · ${esc(t.headers[row.cells.indexOf(c)] || "")}` : ""}<br>
+      Counted on this computer by: ${esc(purpose)}.${where ? ` This figure is the result where ${where}.` : ""}
+      ${h.none_found ? " No records matched, so it is 0." : ""}<br><span class="muted">Calculation ${esc(h.query)}; the exact query is under Technical details.</span>`;
+  }
+  function showExplain(td) {
+    const [tid, ri, ci] = td.dataset.how.split("|");
+    const r = state.last, t = r.tables.find((x) => x.id === tid), row = t.rows[Number(ri)], c = row.cells[Number(ci)];
+    const box = $("explain");
+    box.innerHTML = `<button type="button" class="close" aria-label="Close">×</button><div>${explainText(r, t, row, c)}</div>`;
+    box.hidden = false;
+    const rect = td.getBoundingClientRect();
+    const left = Math.min(window.scrollX + rect.left, window.scrollX + document.documentElement.clientWidth - box.offsetWidth - 12);
+    box.style.left = `${Math.max(8, left)}px`;
+    box.style.top = `${window.scrollY + rect.bottom + 6}px`;
+    box.querySelector(".close").onclick = () => { box.hidden = true; };
+  }
+  document.addEventListener("click", (e) => {
+    const td = e.target.closest("td[data-how]");
+    if (td) { showExplain(td); return; }
+    if (!e.target.closest("#explain")) $("explain").hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") $("explain").hidden = true;
+    if (e.key === "Enter" && e.target.matches?.("td[data-how]")) showExplain(e.target);
+  });
+
+  // The few choices and data checks worth a look, as optional refinements with one-click options.
+  function considerationsHtml(key, r) {
+    if (!key.length) return "";
+    const counted = key.filter((n) => n.kind === "assumption"), data = key.filter((n) => n.kind !== "assumption");
+    const item = (n) => {
+      const tag = n.question ? ["q", "Question"] : n.kind === "assumption" ? ["a", "Choice"] : ["w", "Data check"];
+      const a = affects(n, r);
+      const opts = (n.options || []).map((o, i) => i === 0 && /^keep\b/i.test(o.label)
+        ? `<button type="button" class="secondary chosen" disabled>${esc(o.label)}</button>`
+        : `<button type="button" class="secondary" data-option="${esc(n.id)}" data-i="${i}">${esc(o.label)}</button>`).join("");
+      return `<div class="item" data-note="${esc(n.id)}"><span class="tag ${tag[0]}">${tag[1]}</span><div>
+        <p>${esc(n.text)}</p>${n.question ? `<p class="small">${esc(n.question)}</p>` : ""}${a ? `<p class="small muted">Affects: ${esc(a)}</p>` : ""}
+        <div class="opts">${opts}<button type="button" class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">${opts ? "Something else…" : "Change"}</button></div></div></div>`;
+    };
+    const section = (title, list) => (list.length ? `<h4>${title}</h4>${list.map(item).join("")}` : "");
+    return `<div class="card considerations"><h3>Some considerations to check</h3>
+      <p class="muted lead">Optional refinements. The tables are ready as they are; choose an option only if you'd like a different approach, and the affected figures are recalculated.</p>
+      ${section("Who was counted", counted)}${section("Things noticed in the data", data)}</div>`;
+  }
   function noteHtml(n, affected = "") {
-    return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind))}</div><div>${esc(n.text)}</div>
+    return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind, n.key))}</div><div>${esc(n.text)}</div>
       ${affected ? `<div class="muted">Affects: ${esc(affected)}</div>` : ""}
       ${n.how_to_change ? `<div class="muted">${esc(n.how_to_change)}</div>` : ""}
       <div class="change"><button class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">Change</button></div></div>`;
   }
   function openChange(btn) {
-    const box = btn.closest(".note");
+    const box = btn.closest(".note, .item > div");
     if (box.querySelector("form")) return;
     const form = document.createElement("form");
     form.innerHTML = `<textarea rows="3" required placeholder="What should be done instead?"></textarea><button class="primary" type="submit">Recalculate</button>`;
@@ -325,8 +469,9 @@
     const scope = noteScope(r);
     const defs = r.report.definitions || [];
     const heading = [r.report.organization, r.report.title, r.report.subtitle].filter(Boolean);
-    const noteLine = (n) => { const a = affects(n, r); return `${kindLabel(n.kind)}: ${n.text}${a ? ` [Affects: ${a}]` : ""}`; };
+    const noteLine = (n) => { const a = affects(n, r); return `${kindLabel(n.kind, n.key)}: ${n.text}${a ? ` [Affects: ${a}]` : ""}`; };
     const htmlHead = heading.map((x, i) => (i ? `<p>${esc(x)}</p>` : `<h2>${esc(x)}</h2>`)).join("") +
+      scope.key.map((n) => `<p><b>${esc(noteLine(n))}</b></p>`).join("") +
       scope.shared.map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("");
     const html = htmlHead + r.tables.map((t) => `<h3>${esc(t.title)}</h3>${t.subtitle ? `<p><i>${esc(t.subtitle)}</i></p>` : ""}${tableHtml(t).replace('class="report"', 'border="1" cellpadding="4" style="border-collapse:collapse"')}${t.note ? `<p><i>${esc(t.note)}</i></p>` : ""}` +
       r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id).map((n) => `<p><small>${esc(noteLine(n))}</small></p>`).join("")).join("<br>") +

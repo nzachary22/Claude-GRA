@@ -37,9 +37,23 @@ class Note:
     tables: list[str]
     how_to_change: str = ""
     collect: str = ""  # for the team's data collection guide: what staff should ask for or record
+    key: bool = False  # a consideration shown first, in the summary at the top of the results
+    question: str = ""  # an optional question for the user about the choice
+    options: list = field(default_factory=list)  # one-click choices: [{"label": ..., "instruction": ...}]
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        d = self.__dict__.copy()
+        d["options"] = [dict(o) for o in self.options]
+        return d
+
+
+def _options(raw) -> list[dict]:
+    """Up to three one-click choices for a key note, trimmed to sensible lengths."""
+    out = []
+    for o in raw if isinstance(raw, list) else []:
+        if isinstance(o, dict) and str(o.get("label") or "").strip():
+            out.append({"label": str(o["label"]).strip()[:60], "instruction": str(o.get("instruction") or "").strip()[:500]})
+    return out[:3]
 
 
 class Cancelled(Exception):
@@ -69,6 +83,11 @@ Reporting rules:
 - Reproduce each table of the reference report as faithfully as possible: titles, column headers, row labels, categories, ordering, headings, subtotals and totals. Include every category the report shows, even when its count is zero.
 - Every figure must come from a query on the current data for the current reporting period. Never copy or reuse figures from the historical report; it is only a guide to structure and definitions.
 - Apply the report's own definitions (eligibility, date rules, freeze or cut-off dates, precedence rules, missing-value categories) to the new period. Shift year-specific dates to the new period in the same way.
+- Who is counted: assume the uploaded data already holds the organization's reportable clients and cases. If the report limits who counts (for example an income, eligibility, funding or service-type test) and the data cannot confirm that test for most records, because the field is missing, mostly blank, or only hints at the test (a billing or fee label does not prove eligibility), do not narrow the report to the few records that pass. Count every record in scope for the period, apply only the limits the data records plainly (for example a practice area the report excludes), and record one note_assumption of kind "assumption" with "key": true saying what was counted and which test could not be checked, with options letting the user keep it or ask for the stricter count.
+- Scope question: if the data holds several kinds of cases, clients or services (for example practice areas or programs) and the report describes a narrower purpose than all of them, keep them all, then record a note_assumption of kind "assumption" with "key": true listing the kinds included with their counts from your queries, a "question" asking whether the tables should include only the kinds the report describes, and options for each answer. Ask only when the data does not plainly settle it; never ask about a kind the report clearly excludes or includes.
+- Data that looks incomplete: if a category, row or group the report expects has no or almost no matching records, or a field the tables rely on is blank on most records, record a note_assumption of kind "warning" (or "gap") with "key": true saying so in plain words, with options where a choice applies (for example show the figure as 0 or mark it unavailable).
+- Big changes from the past report: when the uploaded report is a past edition with its own figures, compare your main totals and largest rows with the same rows there. If one changed by 200% or more (it tripled or more, or fell to a third or less) and at least one of the two figures is 10 or more, record a note_assumption of kind "warning" with "key": true giving both figures in plain words (for example "Housing cases: 412 this period, 96 in the past report"), as a prompt to check the data, not a sign of an error. Skip this when the change is explained by a different period length or by a choice already noted.
+- Key notes ("key": true) appear in a short summary at the top of the results as optional refinements; the tables stand as submitted. Use them only for a material issue: a choice or gap that changes a reported figure noticeably, or a real question about scope. Rules the report states plainly and minor data gaps are ordinary notes, not key notes. When the tables follow the report without such an issue, record no key notes; the summary is then not shown. Keep them to the few that matter most (at most about five). Give each one up to three "options": the first is what you did (label starting "Keep:"), and each other option has a short label and an "instruction" saying exactly what to change if the user picks it. Counts in key notes must come from your query results.
 - Where the report is silent or ambiguous, choose the most reasonable assumption grounded in the report, proceed, and record it with note_assumption (kind "assumption"), including how a user would change it in plain language.
 - Never invent missing facts, never silently drop records, and never treat unavailable information as zero. If a figure cannot be calculated from the data, bind its cell as a gap and record a note of kind "gap". Record anything that looks wrong (for example totals that do not reconcile) as kind "warning".
 - An amount summed over records that exist but whose amount field is blank on every one (for example wages recovered on closed cases with no wages entered): if the reference report shows 0 (or $0) for such a row, follow it and report 0 (for example with COALESCE(SUM(...), 0)), and record a note of kind "assumption" saying the amount field was blank on those records. If the report gives no such precedent, bind the cell as a gap with a note of kind "gap". This is the only case where blank amounts become zero.
@@ -122,6 +141,13 @@ TOOLS = [
                 "text": {"type": "string", "description": "One or two plain sentences."},
                 "tables": {"type": "array", "items": {"type": "string"}, "description": "Ids of affected tables."},
                 "how_to_change": {"type": "string", "description": "How a user could correct this, in plain language."},
+                "key": {"type": "boolean", "description": "true for one of the few considerations shown in the summary at the top of the results: who the report counts, a scope question, or data that looks incomplete."},
+                "question": {"type": "string", "description": "For key notes: an optional plain question for the user, e.g. 'Should the tables include only Housing and Family cases?'"},
+                "options": {"type": "array", "maxItems": 3, "description": "For key notes: one-click choices. The first is what you did, labelled 'Keep: ...'.",
+                            "items": {"type": "object", "properties": {
+                                "label": {"type": "string", "description": "Button text, at most about 40 characters."},
+                                "instruction": {"type": "string", "description": "What to change if the user picks this; not needed for the Keep option."}},
+                                "required": ["label"]}},
                 "collect": {"type": "string", "description": "For gaps and data-entry problems: one plain instruction for front-line staff on what to ask clients for or record, and in which field, e.g. 'Ask every client their ethnicity at intake and record it in the Client Profile - Ethnicity field.' Field names only; never client details."},
             },
             "required": ["id", "kind", "text", "tables"],
@@ -208,8 +234,10 @@ class Event:
 class ReportSession:
     def __init__(self, gate: QueryGate, schema_text: str, document_blocks: list[dict], period: tuple[str, str],
                  model: ModelClient, limits: Limits | None = None, activity_path=None,
-                 layout: tuple[str, str | None] = ("", None)):
+                 layout: tuple[str, str | None] = ("", None), saved_choices: list[str] | tuple = ()):
         self.gate = gate
+        self.saved_choices = [str(c) for c in saved_choices if str(c).strip()]
+        self.corrections: list[str] = []  # the user's corrections and option choices in this run
         self.model = model
         self.limits = limits or Limits()
         self.period = period
@@ -241,6 +269,7 @@ class ReportSession:
 
     def correct(self, instruction: str):
         """Apply a user's plain-language correction and recalculate affected tables."""
+        self.corrections.append(instruction.strip())
         text = (f"The user reviewed the draft tables and asks for this correction:\n\n{instruction.strip()}\n\n"
                 f"The current reporting period is {self.period[0]} to {self.period[1]}. If this correction changes "
                 "it, pass the new period in report.period. "
@@ -264,6 +293,8 @@ class ReportSession:
                 "report": dict(self.report),
                 "period": list(self.period),
                 "queries_used": self.queries_used,
+                "purposes": {q.query_id: q.purpose for q in self.gate.log},
+                "corrections": list(self.corrections),
             }
 
     # ------------------------------------------------------------ loop
@@ -291,6 +322,9 @@ class ReportSession:
             "DATABASE DESCRIPTION (non-identifying; individual records are not available to you):\n\n"
             f"{schema_text}\n"
             + (f"REFERENCE REPORT PAGE LAYOUT:\n{self.layout_text}\n\n" if self.layout_text else "")
+            + ("SAVED CHOICES from an earlier run of this report, which the user asked to reuse. Apply each where it "
+               "still fits the report and data, and record a note for any that no longer apply:\n"
+               + "".join(f"- {c}\n" for c in self.saved_choices) + "\n" if self.saved_choices else "")
             + "Rebuild every table in the uploaded report for the current reporting period, then submit them.")})
         return blocks
 
@@ -402,7 +436,9 @@ class ReportSession:
             return "A note needs kind (assumption, gap or warning) and text.", True
         nid = str(args.get("id") or f"N{len(self.notes) + 1}")
         note = Note(nid, kind, str(args["text"]), [str(t) for t in args.get("tables") or []],
-                    str(args.get("how_to_change") or ""), str(args.get("collect") or "")[:500])
+                    str(args.get("how_to_change") or ""), str(args.get("collect") or "")[:500],
+                    args.get("key") is True or str(args.get("key")).lower() == "true",
+                    str(args.get("question") or "")[:300], _options(args.get("options")))
         with self._lock:
             self.notes[nid] = note
         self._emit("note", f"Recorded {kind}: {note.text[:120]}")

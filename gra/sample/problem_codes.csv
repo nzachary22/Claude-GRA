@@ -1,0 +1,74 @@
+problem_code,group_id,group,category,parent,sort_order
+01.01,01,Consumer & finance,Debt collection defense,,01.01
+01.02,01,Consumer & finance,Bankruptcy / debtor relief,,01.02
+01.03,01,Consumer & finance,Credit reporting and identity theft,,01.03
+01.04,01,Consumer & finance,Consumer contracts and warranties,,01.04
+01.05,01,Consumer & finance,Utilities and essential services,,01.05
+01.06,01,Consumer & finance,Predatory non-mortgage lending,,01.06
+01.07,01,Consumer & finance,Vehicle repossession,,01.07
+01.08,01,Consumer & finance,Other consumer matters,,01.08
+02.01,02,Employment,Unpaid wages and overtime,,02.01
+02.02,02,Employment,Workplace discrimination,,02.02
+02.03,02,Employment,Job termination / retaliation,,02.03
+02.04,02,Employment,Workplace accommodations,,02.04
+02.05,02,Employment,Occupational licensing,,02.05
+03.01,03,Education,Special education access,,03.01
+03.02,03,Education,School discipline,,03.02
+03.03,03,Education,Enrollment and language access,,03.03
+03.04,03,Education,Higher education disputes,,03.04
+04.01,04,Family & safety,Protective orders,,04.01
+04.02,04,Family & safety,Divorce / dissolution,,04.02
+04.03,04,Family & safety,Parenting time and custody,,04.03
+04.04,04,Family & safety,Child support,,04.04
+04.05,04,Family & safety,Parentage,,04.05
+04.06,04,Family & safety,Adult guardianship,,04.06
+04.07,04,Family & safety,Adoption / kinship care,,04.07
+04.08,04,Family & safety,Name changes related to family matters,,04.08
+04.09,04,Family & safety,Other family matters,,04.09
+05.01,05,Health,Medicaid coverage and appeals,,05.01
+05.02,05,Health,Private health insurance,,05.02
+05.03,05,Health,Access to treatment,,05.03
+05.04,05,Health,Long-term care facilities,,05.04
+05.05,05,Health,State / local health programs,,05.05
+05.06,05,Health,Other health matters,,05.06
+06.01,06,Housing,Private tenancy: nonpayment eviction,Rental housing,06.01
+06.02,06,Housing,Private tenancy: other eviction grounds,Rental housing,06.02
+06.03,06,Housing,Repairs and habitability,Rental housing,06.03
+06.04,06,Housing,Security deposits,Rental housing,06.04
+06.05,06,Housing,Lease terms / rent disputes,Rental housing,06.05
+06.06,06,Housing,Illegal lockouts and utility shutoffs,Rental housing,06.06
+06.07,06,Housing,Federal rental assistance termination,Subsidized housing,06.07
+06.08,06,Housing,Federal subsidy admission / recertification,Subsidized housing,06.08
+06.09,06,Housing,Public housing eviction,Subsidized housing,06.09
+06.10,06,Housing,Public housing grievance / transfer,Subsidized housing,06.10
+06.11,06,Housing,Disability accommodations,Fair housing,06.11
+06.12,06,Housing,Other housing discrimination,Fair housing,06.12
+06.13,06,Housing,"Title, deed and ownership disputes",Homeownership,06.13
+06.14,06,Housing,Non-predatory mortgage foreclosure,Homeownership,06.14
+06.15,06,Housing,Mortgage predatory lending / servicing,Homeownership,06.15
+06.16,06,Housing,Property tax foreclosure,Homeownership,06.16
+06.17,06,Housing,Mobile home tenancy / lot disputes,Other housing,06.17
+06.18,06,Housing,Homelessness / shelter access,Other housing,06.18
+06.19,06,Housing,Disaster displacement,Other housing,06.19
+06.20,06,Housing,Other housing matters,Other housing,06.20
+07.01,07,Income maintenance,Supplemental Security Income,,07.01
+07.02,07,Income maintenance,Social Security disability,,07.02
+07.03,07,Income maintenance,Food assistance,,07.03
+07.04,07,Income maintenance,Cash assistance,,07.04
+07.05,07,Income maintenance,Unemployment compensation,,07.05
+07.06,07,Income maintenance,Veterans benefits,,07.06
+07.07,07,Income maintenance,Other income maintenance,,07.07
+08.01,08,Individual rights,Immigration humanitarian relief,,08.01
+08.02,08,Individual rights,Language access,,08.02
+08.03,08,Individual rights,Disability civil rights outside housing,,08.03
+08.04,08,Individual rights,Record sealing / expungement,,08.04
+08.05,08,Individual rights,Other civil rights,,08.05
+09.01,09,Juvenile,Dependency / child welfare,,09.01
+09.02,09,Juvenile,Youth status proceedings,,09.02
+09.03,09,Juvenile,Other juvenile civil matters,,09.03
+10.01,10,Miscellaneous civil,Wills and advance directives,,10.01
+10.02,10,Miscellaneous civil,Probate / estate administration,,10.02
+10.03,10,Miscellaneous civil,Identification documents,,10.03
+10.04,10,Miscellaneous civil,Non-family name changes,,10.04
+10.05,10,Miscellaneous civil,Nonprofit organizational assistance,,10.05
+10.06,10,Miscellaneous civil,Other civil legal matters,,10.06

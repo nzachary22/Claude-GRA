@@ -6,6 +6,7 @@ app-data folder, never in the repository.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import shutil
@@ -35,6 +36,12 @@ from .schema import describe
 
 log = logging.getLogger("gra")
 STATIC = Path(__file__).parent / "static"
+# The fictional Juniper Ridge sample (synthetic data, invented organization) for trying the app safely.
+SAMPLE = Path(__file__).parent / "sample"
+SAMPLE_REPORT = "Juniper Ridge 2025 annual report.pdf"
+SAMPLE_DATA = ("case_events.csv", "cases.csv", "clients.csv", "demographic_responses.csv", "outcome_codes.csv",
+               "problem_codes.csv")
+SAMPLE_PERIOD = ("2026-01-01", "2026-12-31")
 DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".webp"}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 KEEP_RUNS = 5
@@ -67,6 +74,8 @@ class Run:
     pre_events: list[dict] = field(default_factory=list)
     cancel_requested: bool = False
     schema_text: str = ""
+    demo: bool = False  # the recorded no-key demo on the fictional sample
+    saved_choices: list[str] = field(default_factory=list)  # reused from an earlier run of the same report
 
     @property
     def current_period(self) -> tuple[str, str]:
@@ -112,7 +121,7 @@ def create_app(model_factory=None) -> FastAPI:
         return {"version": __version__, "provider": provider,
                 "has_key": model_factory is not None or keys[provider], "keys": keys,
                 # Open Settings once, so people upgrading with a saved key see the choice of AI service.
-                "show_settings": model_factory is None and not settings_seen(),
+                "show_settings": model_factory is None and not settings_seen() and any(keys.values()),
                 "providers": [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items()]}
 
     @app.post("/api/key")
@@ -154,7 +163,7 @@ def create_app(model_factory=None) -> FastAPI:
 
     @app.post("/api/runs")
     async def start_run(report_files: list[UploadFile] = File(...), data_files: list[UploadFile] = File(...),
-                        period_start: str = Form(...), period_end: str = Form(...)):
+                        period_start: str = Form(...), period_end: str = Form(...), saved_choices: str = Form("")):
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", period_start) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", period_end):
             raise HTTPException(400, "Enter the reporting period as two dates.")
         if period_end < period_start:
@@ -183,10 +192,62 @@ def create_app(model_factory=None) -> FastAPI:
                 (folder / sub / name).write_bytes(content)
                 saved.append(name)
 
-        run = Run(run_id, folder, (period_start, period_end), saved_reports, saved_data)
+        chosen = next((c for c in _read_choices() if c["id"] == saved_choices), None) if saved_choices else None
+        run = Run(run_id, folder, (period_start, period_end), saved_reports, saved_data,
+                  saved_choices=list(chosen["choices"]) if chosen else [])
+        if chosen:
+            _event(run, "status", f"Reusing {len(chosen['choices'])} saved choice(s) from {chosen['name']}")
         runs[run_id] = run
         _prune(runs)
         threading.Thread(target=_work, args=(run, factory), daemon=True).start()
+        return {"id": run_id}
+
+    # ------------------------------------------------------------ saved choices
+
+    @app.get("/api/saved-choices")
+    def list_choices():
+        return [{k: c[k] for k in ("id", "name", "report_files", "saved_at")} | {"count": len(c["choices"])}
+                for c in _read_choices()]
+
+    @app.post("/api/runs/{run_id}/save-choices")
+    def save_choices(run_id: str):
+        """Keep this run's choices (the AI's key choices as kept, and the user's own) for the next run of this report."""
+        run = get_run(run_id)
+        if run.demo or not run.session:
+            raise HTTPException(400, "There are no choices to save for this run.")
+        s = run.session
+        kept = [f"As last time: {n.text}" for n in s.notes.values() if n.key and n.kind == "assumption"]
+        choices = kept + [f"The user asked: {c}" for c in s.corrections]
+        if not choices:
+            raise HTTPException(400, "This run has no choices to save yet.")
+        name = " · ".join(x for x in (s.report.get("organization"), s.report.get("title")) if x) or ", ".join(run.report_names)
+        saved = [c for c in _read_choices() if c["name"] != name]
+        entry = {"id": uuid.uuid4().hex[:12], "name": name, "report_files": list(run.report_names),
+                 "choices": choices[:20], "saved_at": time.strftime("%Y-%m-%d")}
+        _write_choices([entry] + saved[:19])
+        return {"ok": True, "name": name, "count": len(entry["choices"])}
+
+    @app.delete("/api/saved-choices/{choice_id}")
+    def delete_choices(choice_id: str):
+        _write_choices([c for c in _read_choices() if c["id"] != choice_id])
+        return {"ok": True}
+
+    @app.post("/api/demo")
+    def start_demo():
+        """The no-key demo: the fictional sample, prepared by a recorded analyst instead of an AI service."""
+        from .demo import DemoModel
+
+        run_id = uuid.uuid4().hex[:12]
+        folder = app_data_dir() / "runs" / run_id
+        (folder / "report").mkdir(parents=True)
+        (folder / "data").mkdir()
+        for name, sub in [(SAMPLE_REPORT, "report")] + [(n, "data") for n in SAMPLE_DATA]:
+            shutil.copyfile(SAMPLE / name, folder / sub / name)
+        run = Run(run_id, folder, SAMPLE_PERIOD, [SAMPLE_REPORT], list(SAMPLE_DATA), demo=True)
+        runs[run_id] = run
+        _prune(runs)
+        pause = 1.5 if model_factory is None else 0  # tests skip the pauses that make progress visible
+        threading.Thread(target=_work, args=(run, lambda: DemoModel(*SAMPLE_PERIOD, SAMPLE, pause)), daemon=True).start()
         return {"id": run_id}
 
     @app.get("/api/runs/{run_id}")
@@ -200,6 +261,7 @@ def create_app(model_factory=None) -> FastAPI:
             "period": list(run.current_period), "report_files": run.report_names, "data_files": run.data_names,
             "import_summary": run.import_summary,
             "events": events[since:], "event_count": len(events),
+            "demo": run.demo, "purposes": snap.get("purposes", {}), "corrections": len(snap.get("corrections", [])),
             "tables": snap["tables"], "notes": snap["notes"], "report": snap["report"], "queries_used": snap["queries_used"],
             "data_gaps": bool(run.session and run.session.tables
                               and has_gaps(run.session.tables, list(run.session.notes.values()))),
@@ -216,6 +278,9 @@ def create_app(model_factory=None) -> FastAPI:
     @app.post("/api/runs/{run_id}/correct")
     def correct(run_id: str, body: CorrectionIn):
         run = get_run(run_id)
+        if run.demo:
+            raise HTTPException(400, "The demo is a recording, so it can't recalculate. To try changes, add your own "
+                                     "AI key in Settings and prepare a report from your files or the sample files.")
         if not run.session or run.session.status == "running" or run.status == "importing":
             raise HTTPException(409, "The report is still being prepared.")
         text = body.text.strip()
@@ -350,6 +415,18 @@ def create_app(model_factory=None) -> FastAPI:
         return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                         headers={"Content-Disposition": f'attachment; filename="data-collection-guide-{stamp}.docx"'})
 
+    @app.get("/api/sample")
+    def sample():
+        """The fictional sample: a past report, its data extract and the period to report on."""
+        return {"report": [SAMPLE_REPORT], "data": list(SAMPLE_DATA), "period": list(SAMPLE_PERIOD),
+                "name": "Juniper Ridge Legal Aid Society (fictional)"}
+
+    @app.get("/api/sample/{name}")
+    def sample_file(name: str):
+        if name not in (SAMPLE_REPORT, *SAMPLE_DATA):
+            raise HTTPException(404, "Not a sample file.")
+        return FileResponse(SAMPLE / name)
+
     @app.get("/")
     def index():
         return FileResponse(STATIC / "index.html")
@@ -386,11 +463,13 @@ def _work(run: Run, factory):
             return
         gate = QueryGate(db, catalog)
         _check_reports(run, gate)
-        _event(run, "status", "Connecting to the AI service")
+        _event(run, "status", "Starting the recorded demo; nothing is sent to any AI service" if run.demo
+               else "Connecting to the AI service")
         model = factory()
         layout = layout_summary([run.folder / "report" / n for n in run.report_names])
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,
-                                    activity_path=run.folder / "activity.jsonl", layout=layout)
+                                    activity_path=run.folder / "activity.jsonl", layout=layout,
+                                    saved_choices=run.saved_choices)
         run.status = "running"
         if run.cancel_requested:
             run.session.cancel()
@@ -492,6 +571,24 @@ def _safe_name(name: str, taken: list[str]) -> str:
         candidate = f"{stem}_{i}{suf}"
         i += 1
     return candidate
+
+
+def _choices_file() -> Path:
+    return app_data_dir() / "saved-choices.json"
+
+
+def _read_choices() -> list[dict]:
+    try:
+        data = json.loads(_choices_file().read_text(encoding="utf-8"))
+        return [c for c in data if isinstance(c, dict) and {"id", "name", "choices"} <= set(c)]
+    except (OSError, ValueError):
+        return []
+
+
+def _write_choices(items: list[dict]):
+    path = _choices_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(items, indent=1), encoding="utf-8")
 
 
 def _prune(runs: dict[str, Run]):

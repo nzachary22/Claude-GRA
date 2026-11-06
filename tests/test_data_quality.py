@@ -58,7 +58,7 @@ def test_guide_lists_what_to_collect_tables_affected_and_field_completeness(tiny
     assert "Ask every client their household income" in text
     assert "Why it matters: Income is not recorded" in text
     assert "Clients by gender" in text and "Partly complete" in text
-    assert "Gender" in text and "98%" in text
+    assert "Gender" in text and "2%" in text and "% missing" in text
     for secret in ("Stone", "Ava", "C-001", "mold", "1980-02-01"):
         assert secret not in text
 
