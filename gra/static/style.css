@@ -134,7 +134,7 @@ table.report td[title] { cursor: help; }
 .opts .chosen { border-color: var(--accent); background: var(--head); font-weight: 600; cursor: default; opacity: 1; }
 .more-list { margin: 0; padding-left: 18px; }
 .more-list li { margin: 4px 0; }
-.demo-box { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 14px; }
+.demo-box { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 14px; }
 .demo-actions { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
 .demo-actions .link { padding: 0; }
 .demo-banner { background: var(--head); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; }
@@ -150,3 +150,7 @@ td.explainable:hover, td.explainable:focus { outline: 2px solid var(--accent); o
 .save-line .link, .saved-line .link { padding: 0 4px; }
 .saved-line { margin: 10px 0 0; font-size: 14px; }
 .saved-line select { font: inherit; max-width: 100%; }
+.demo-ready { margin: 14px 0 4px; padding: 12px 14px; border: 2px solid var(--accent); border-radius: 8px; background: var(--head); font-size: 14px; }
+.demo-ready p { margin: 0 0 10px; }
+#upload.demo-step .drop { border-color: var(--accent); border-style: solid; background: var(--head); }
+#upload.demo-step .actions, #upload.demo-step .estimate, #upload.demo-step .saved-line { display: none; }

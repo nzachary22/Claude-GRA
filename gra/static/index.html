@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
   <link rel="icon" href="/static/icon.ico">
-  <link rel="stylesheet" href="/static/style.css?v=15">
+  <link rel="stylesheet" href="/static/style.css?v=16">
 </head>
 <body>
   <header class="top">
@@ -23,6 +23,11 @@
     <section id="setup" class="card" hidden>
       <h2 id="setup-title">One-time setup</h2>
       <p class="whats-new" id="whats-new" hidden><b>New in V.1.5:</b> <b>Some considerations to check</b> at the top of the results lists the AI's main choices, questions about scope and anything that looks incomplete in your data, each with one-click options to refine the tables. Extra downloads, such as the Data collection guide, are now under <b>More downloads</b> below the tables. Click any figure to see how it was counted, save a run's choices for next time, and watch a <b>demo</b> with fictional data (no AI key needed).</p>
+      <div class="demo-box" id="demo-box">
+        <div><strong>New to the app?</strong> Watch a demo with a fictional legal aid society's past report and made-up records. No AI key needed, and nothing leaves this computer.</div>
+        <div class="demo-actions"><button type="button" id="demo" class="secondary">Watch the demo</button>
+          <a id="sample-report" href="/api/sample/Juniper%20Ridge%202025%20annual%20report.pdf" target="_blank" rel="noopener">View the sample's past report</a></div>
+      </div>
       <p>The assistant uses an AI service to read your report and plan the calculations. Choose Anthropic (Claude) or OpenAI and paste your own API key once; it is stored in this computer's secure key store (Windows Credential Manager or the Mac Keychain). You pay the service directly for what you use.</p>
       <p class="muted">Client records never leave this computer, whichever service you choose. The AI only receives your report, a description of the data columns and totals calculated here.</p>
       <fieldset class="providers" id="providers">
@@ -70,11 +75,10 @@
       <p id="saved-line" class="muted saved-line" hidden>Reuse saved choices from an earlier run:
         <select id="saved-choices" aria-label="Saved choices"><option value="">None</option></select>
         <button type="button" id="forget-choices" class="link" hidden>Forget these</button></p>
-      <div class="demo-box">
-        <div><strong>New to the app?</strong> Watch a demo with a fictional legal aid society's past report and made-up records. No AI key needed, and nothing leaves this computer.</div>
-        <div class="demo-actions"><button type="button" id="demo" class="secondary">Watch the demo</button>
-          <a id="sample-report" href="/api/sample/Juniper%20Ridge%202025%20annual%20report.pdf" target="_blank" rel="noopener">View the sample's past report</a>
-          <button type="button" id="sample" class="link">Load the sample files to run with your own AI key</button></div>
+      <div class="demo-ready" id="demo-ready" hidden>
+        <p><strong>Demo, step 1 of 2: the files are in.</strong> The fictional society's past report is in the left box and its made-up client and case records are in the right box, with the reporting period set below them. With your own report, this is where you add your files.</p>
+        <div class="demo-actions"><button type="button" id="demo-go" class="primary">Next: watch the report being prepared</button>
+          <button type="button" id="demo-cancel" class="link">Cancel the demo</button></div>
       </div>
       <div class="actions">
         <button id="start" class="primary" disabled>Prepare report</button>
@@ -139,6 +143,6 @@
     </section>
   </main>
   <div id="explain" class="explain" role="dialog" hidden></div>
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 </html>

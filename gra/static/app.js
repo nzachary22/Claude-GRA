@@ -57,7 +57,7 @@
     const s = await api("/api/status");
     state.status = s;
     if (s.version) document.querySelector(".ver").textContent = "V." + s.version.replace(/\.0$/, "");
-    // No key is asked for until someone prepares a report of their own; the demo needs none.
+    // No key is needed for the demo; one is asked for only when someone prepares a report of their own.
     $("setup-title").textContent = s.has_key ? "Settings" : "One-time setup";
     $("setup-close").hidden = false;
     const radio = document.querySelector(`input[name="provider"][value="${s.provider}"]`);
@@ -125,6 +125,7 @@
       $("preview-body").hidden = true;  // a preview of other files would mislead
       state.previewToken = (state.previewToken || 0) + 1;  // and one still loading is discarded
       msg("upload-msg", "");
+      if (state.demoReady && !state.loadingSample) demoMode(false);
       showEstimate();
       if (typeof suggestSaved === "function") suggestSaved();
     };
@@ -152,21 +153,53 @@
   bindDrop("drop-report", "report-files", "report-list", "reportFiles");
   bindDrop("drop-data", "data-files", "data-list", "dataFiles");
 
-  $("sample").onclick = async () => {
-    msg("upload-msg", "Loading the fictional sample…");
+  // The fictional sample, put into the two upload boxes as if someone had added the files.
+  async function loadSample() {
+    const s = await api("/api/sample");
+    const load = async (names) => Promise.all(names.map(async (n) => {
+      const res = await fetch(`/api/sample/${encodeURIComponent(n)}`);
+      if (!res.ok) throw new Error("The sample files could not be loaded.");
+      return new File([await res.blob()], n, { type: res.headers.get("content-type") || "" });
+    }));
+    const [report, data] = await Promise.all([load(s.report), load(s.data)]);
+    state.reportFiles = []; state.dataFiles = [];
+    state.loadingSample = true;
+    try { setters.reportFiles(report); setters.dataFiles(data); } finally { state.loadingSample = false; }
+    $("period-start").value = s.period[0]; $("period-end").value = s.period[1];
+    return s;
+  }
+  const toUpload = () => { history.replaceState(null, "", location.pathname); show("upload"); $("upload").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  function demoMode(on) {
+    state.demoReady = on;
+    $("demo-ready").hidden = !on;
+    $("upload").classList.toggle("demo-step", on);
+  }
+
+  // The demo first shows the sample files in the upload boxes, then runs when the person is ready.
+  $("demo").onclick = async () => {
+    $("demo").disabled = true;
+    closeSetup(); toUpload();
     try {
-      const s = await api("/api/sample");
-      const load = async (names) => Promise.all(names.map(async (n) => {
-        const res = await fetch(`/api/sample/${encodeURIComponent(n)}`);
-        if (!res.ok) throw new Error("The sample files could not be loaded.");
-        return new File([await res.blob()], n, { type: res.headers.get("content-type") || "" });
-      }));
-      const [report, data] = await Promise.all([load(s.report), load(s.data)]);
-      state.reportFiles = []; state.dataFiles = [];
-      setters.reportFiles(report); setters.dataFiles(data);
-      $("period-start").value = s.period[0]; $("period-end").value = s.period[1];
-      msg("upload-msg", `Loaded ${s.name}: last year's report and this year's made-up records. Press Prepare report to see the full process.`, "ok");
+      await loadSample();
+      demoMode(true);
+      $("demo-go").focus({ preventScroll: true });
     } catch (err) { msg("upload-msg", err.message, "err"); }
+    finally { $("demo").disabled = false; }
+  };
+  $("demo-go").onclick = async () => {
+    $("demo-go").disabled = true;
+    try {
+      const { id } = await api("/api/demo", { method: "POST" });
+      demoMode(false);
+      msg("upload-msg", "");
+      startPolling(id);
+    } catch (err) { msg("upload-msg", err.message, "err"); }
+    finally { $("demo-go").disabled = false; }
+  };
+  $("demo-cancel").onclick = () => {
+    demoMode(false);
+    state.reportFiles = []; setters.reportFiles([]);
+    state.dataFiles = []; setters.dataFiles([]);
   };
 
   $("save-choices").onclick = async () => {
@@ -202,16 +235,6 @@
     loadSavedChoices();
   };
   loadSavedChoices();
-
-  $("demo").onclick = async () => {
-    $("demo").disabled = true;
-    try {
-      const { id } = await api("/api/demo", { method: "POST" });
-      msg("upload-msg", "");
-      startPolling(id);
-    } catch (err) { msg("upload-msg", err.message, "err"); }
-    finally { $("demo").disabled = false; }
-  };
 
   $("start").onclick = async () => {
     $("start").disabled = true;
@@ -500,9 +523,13 @@
   // Reopening or refreshing the page returns to the same report run.
   const m = location.hash.match(/run=([a-f0-9]+)/);
   checkStatus().then((s) => {
-    if (!s.show_settings || m) return;  // never over a report in progress; it waits for the next start
-    $("setup").hidden = false;  // once, so people who already have a key see the choice of AI service
-    $("whats-new").hidden = !s.has_key;
+    if (m) return;  // never over a report in progress
+    // Settings opens by itself while no key is saved (it holds the demo and the key field),
+    // and once after an update, so people who already have a key see what's new.
+    if (!s.has_key) { $("setup").hidden = false; return; }
+    if (!s.show_settings) return;
+    $("setup").hidden = false;
+    $("whats-new").hidden = false;
     api("/api/settings-seen", { method: "POST" }).catch(() => {});
   }).catch(() => {});
   if (m) startPolling(m[1]);
