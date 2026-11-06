@@ -120,8 +120,18 @@ table.report td[title] { cursor: help; }
 .defs h4 { margin: 12px 0 2px; }
 .defs p { margin: 0 0 6px; max-width: 80ch; }
 .files .size { color: var(--muted); font-size: 12px; }
-.key-notes { border-color: var(--accent); }
-.key-notes .note { border-left-color: var(--accent); }
+.considerations .lead { margin: 0 0 8px; }
+.considerations h4 { margin: 16px 0 4px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.considerations .item { display: flex; gap: 14px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 8px 0; background: var(--card); }
+.considerations .item p { margin: 0 0 6px; }
+.considerations .small { font-size: 14px; }
+.considerations .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; border-radius: 4px; padding: 2px 7px; white-space: nowrap; margin-top: 2px; }
+.tag.a { background: var(--head); color: var(--accent); }
+.tag.q { background: var(--head); color: var(--ok); }
+.tag.w { background: var(--warn-bg); color: var(--gap); border: 1px solid var(--warn-line); }
+.opts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.opts button { font-size: 13px; padding: 5px 12px; }
+.opts .chosen { border-color: var(--accent); background: var(--head); font-weight: 600; cursor: default; opacity: 1; }
 .more-list { margin: 0; padding-left: 18px; }
 .more-list li { margin: 4px 0; }
 .sample-line { margin: 10px 0 0; font-size: 14px; }

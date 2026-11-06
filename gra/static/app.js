@@ -7,7 +7,7 @@
   const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (cell) => cell.display ?? "";
-  const kindLabel = (k, key) => (key ? "Key assumption" : { assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
+  const kindLabel = (k, key) => (key ? ({ assumption: "Consideration", gap: "Data check", warning: "Data check" }[k] || "Note") : { assumption: "Assumption", gap: "Data gap", warning: "Warning" }[k] || k);
   // A note about one table sits beside it; anything broader is shown once, above the tables.
   const noteScope = (r) => {
     const ids = new Set(r.tables.map((t) => t.id));
@@ -277,7 +277,7 @@
     $("dl-quality").href = `/api/runs/${r.id}/data-quality`;
     $("quality-item").hidden = !r.data_gaps;
     const scope = noteScope(r);
-    $("general-notes").innerHTML = (scope.key.length ? `<div class="card key-notes"><h3>Key assumption: who these tables count</h3><div class="notes">${scope.key.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "") + (scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "");
+    $("general-notes").innerHTML = considerationsHtml(scope.key, r) + (scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "");
     $("tables").innerHTML = r.tables.map((t) => {
       const notes = r.notes.filter((n) => scope.single(n) && n.tables[0] === t.id);
       return `<div class="card table-block${t.headers.length > 6 ? " wide" : ""}"><div><h3>${esc(t.title)}</h3>${t.subtitle ? `<p class="table-sub">${esc(t.subtitle)}</p>` : ""}<div class="table-wrap">${tableHtml(t)}</div>${t.note ? `<p class="caption">${esc(t.note)}</p>` : ""}</div>
@@ -286,6 +286,10 @@
     const defs = r.report.definitions || [];
     $("definitions").innerHTML = defs.length ? `<div class="card defs"><h3>Reporting definitions</h3>${defs.map((d) => `${d.heading ? `<h4>${esc(d.heading)}</h4>` : ""}${d.text.split("\n").filter((x) => x.trim()).map((x) => `<p>${esc(x)}</p>`).join("")}`).join("")}</div>` : "";
     document.querySelectorAll("[data-change]").forEach((b) => (b.onclick = () => openChange(b)));
+    document.querySelectorAll("[data-option]").forEach((b) => (b.onclick = () => {
+      const n = r.notes.find((x) => x.id === b.dataset.option), o = n?.options?.[Number(b.dataset.i)];
+      if (o) submitCorrection(`Regarding note ${n.id} ("${n.text}"): the user chose "${o.label}". ${o.instruction || ""}`.trim());
+    }));
     $("tech").open = false;
     $("tech-body").textContent = "Loading…";
   }
@@ -301,6 +305,25 @@
     }).join("");
     return `<table class="report">${head}<tbody>${body}</tbody></table>`;
   }
+  // The few choices and data checks worth a look, as optional refinements with one-click options.
+  function considerationsHtml(key, r) {
+    if (!key.length) return "";
+    const counted = key.filter((n) => n.kind === "assumption"), data = key.filter((n) => n.kind !== "assumption");
+    const item = (n) => {
+      const tag = n.question ? ["q", "Question"] : n.kind === "assumption" ? ["a", "Choice"] : ["w", "Data check"];
+      const a = affects(n, r);
+      const opts = (n.options || []).map((o, i) => i === 0 && /^keep\b/i.test(o.label)
+        ? `<button type="button" class="secondary chosen" disabled>${esc(o.label)}</button>`
+        : `<button type="button" class="secondary" data-option="${esc(n.id)}" data-i="${i}">${esc(o.label)}</button>`).join("");
+      return `<div class="item" data-note="${esc(n.id)}"><span class="tag ${tag[0]}">${tag[1]}</span><div>
+        <p>${esc(n.text)}</p>${n.question ? `<p class="small">${esc(n.question)}</p>` : ""}${a ? `<p class="small muted">Affects: ${esc(a)}</p>` : ""}
+        <div class="opts">${opts}<button type="button" class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">${opts ? "Something else…" : "Change"}</button></div></div></div>`;
+    };
+    const section = (title, list) => (list.length ? `<h4>${title}</h4>${list.map(item).join("")}` : "");
+    return `<div class="card considerations"><h3>Some considerations to check</h3>
+      <p class="muted lead">Optional refinements. The tables are ready as they are; choose an option only if you'd like a different approach, and the affected figures are recalculated.</p>
+      ${section("Who was counted", counted)}${section("Things noticed in the data", data)}</div>`;
+  }
   function noteHtml(n, affected = "") {
     return `<div class="note ${esc(n.kind)}"><div class="kind">${esc(kindLabel(n.kind, n.key))}</div><div>${esc(n.text)}</div>
       ${affected ? `<div class="muted">Affects: ${esc(affected)}</div>` : ""}
@@ -308,7 +331,7 @@
       <div class="change"><button class="link" data-change="${esc(n.id)}" data-text="${esc(n.text)}">Change</button></div></div>`;
   }
   function openChange(btn) {
-    const box = btn.closest(".note");
+    const box = btn.closest(".note, .item > div");
     if (box.querySelector("form")) return;
     const form = document.createElement("form");
     form.innerHTML = `<textarea rows="3" required placeholder="What should be done instead?"></textarea><button class="primary" type="submit">Recalculate</button>`;

@@ -62,7 +62,7 @@ def excel_format(cell: Cell) -> str | None:
 
 
 def _note_line(n: Note) -> str:
-    label = "Key assumption" if n.key else {"assumption": "Assumption", "gap": "Data gap", "warning": "Warning"}.get(n.kind, n.kind.title())
+    label = {"assumption": "Consideration", "gap": "Data check", "warning": "Data check"}.get(n.kind, "Note") if n.key else {"assumption": "Assumption", "gap": "Data gap", "warning": "Warning"}.get(n.kind, n.kind.title())
     text = f"{label}: {n.text}"
     if n.how_to_change:
         text += f" (To change: {n.how_to_change})"
@@ -139,9 +139,10 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
     doc.add_paragraph(f"Reporting period: {period}. Draft prepared from current local data; review before submission.")
     key = key_notes(notes)
     if key:
-        doc.add_heading("Key assumptions: who these tables count", level=2)
+        doc.add_heading("Some considerations to check", level=2)
         for n in key:
-            doc.add_paragraph(shared_note_line(n, tables), style="List Bullet").runs[0].bold = True
+            line = shared_note_line(n, tables) + (f" {n.question}" if n.question else "")
+            doc.add_paragraph(line, style="List Bullet")
     shared = shared_notes(tables, notes)
     if shared:
         doc.add_heading("Assumptions and notes for more than one table", level=2)
@@ -358,7 +359,7 @@ def to_xlsx(tables: list[Table], notes: list[Note], title: str, period: str, rep
         c.fill = header_fill
     for i, n in enumerate(sorted(notes, key=lambda n: not n.key), start=4):
         affected = "; ".join(t.title for t in tables if t.id in n.tables) or "All tables"
-        for j, v in enumerate([n.id, "key assumption" if n.key else n.kind, n.text, affected, n.how_to_change], start=1):
+        for j, v in enumerate([n.id, f"consideration ({n.kind})" if n.key else n.kind, n.text, affected, n.how_to_change], start=1):
             ws.cell(row=i, column=j, value=v).alignment = Alignment(wrap_text=True, vertical="top")
     for col, w in zip("ABCDE", (8, 12, 70, 30, 45)):
         ws.column_dimensions[col].width = w
