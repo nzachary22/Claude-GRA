@@ -124,3 +124,19 @@ def test_client_tables_are_never_code_lists(tmp_path):
     catalog = import_files(tmp_path / "x.db", [clients, lookup])
     assert not catalog.table("clients").reference
     assert not catalog.table("client_lookup").reference  # dates mean records, not codes
+
+
+def test_codes_that_cases_are_grouped_by_never_stop_a_report(tmp_path):
+    """Whatever a code list is named, its codes also appear in a category column, so a report that
+    prints them as row labels is not stopped; real client IDs still are."""
+    from gra.gate import QueryGate
+    from tests.conftest import write_csv
+    codes = write_csv(tmp_path / "agency_export_v2.csv", ["code", "label"],
+                      [[f"AP{i:02d}", f"Topic {i}"] for i in range(1, 41)])
+    cases = write_csv(tmp_path / "cases.csv", ["case_id", "client_id", "problem_code"],
+                      [[f"K{i}", f"CL{i:04d}", f"AP{i % 40 + 1:02d}"] for i in range(400)])
+    catalog = import_files(tmp_path / "x.db", [codes, cases])
+    assert catalog.table("agency_export_v2").column("code").role == "identifier"  # near-unique in its own file
+    gate = QueryGate(tmp_path / "x.db", catalog)
+    assert not gate.contains_protected("AP01 Powers of attorney | 12")
+    assert gate.contains_protected("Client CL0007 was served")
