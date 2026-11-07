@@ -298,7 +298,7 @@
   function startPolling(id) {
     state.runId = id; state.seen = 0;
     history.replaceState(null, "", `#run=${id}`);
-    $("events").innerHTML = ""; $("now").textContent = "Starting…";
+    $("events").innerHTML = ""; $("now").textContent = "Starting…"; $("cancel").hidden = false;
     $("bar").style.display = "";
     show("prepare");
     clearInterval(state.timer);
@@ -323,6 +323,7 @@
     else if (r.status === "failed" || r.status === "cancelled") {
       clearInterval(state.timer);
       $("bar").style.display = "none";
+      $("cancel").hidden = true;  // nothing left to stop; pressing it would hide the way back
       $("now").textContent = r.status === "failed" ? `Stopped: ${r.error || "the report could not be prepared."}` : "Cancelled.";
       if (r.tables.length) { const b = document.createElement("button"); b.className = "secondary"; b.textContent = "Review last draft"; b.onclick = () => renderReview(r); $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(b); }
       const log = document.createElement("a"); log.href = `/api/runs/${state.runId}/activity-report`; log.textContent = "AI activity report";
@@ -512,7 +513,7 @@
     } catch (err) { msg("review-msg", err.message, "err"); }
   }
   function startPollingCorrection() {
-    $("events").innerHTML = ""; $("bar").style.display = ""; $("now").textContent = "Applying your correction…";
+    $("events").innerHTML = ""; $("bar").style.display = ""; $("now").textContent = "Applying your correction…"; $("cancel").hidden = false;
     show("prepare");
     clearInterval(state.timer);
     state.timer = setInterval(poll, 1000);

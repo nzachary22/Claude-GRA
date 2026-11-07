@@ -104,3 +104,23 @@ def test_zero_one_flags_are_categories(tmp_path):
     f = write_csv(tmp_path / "x.csv", ["case_id", "advice_given", "civil"], [[f"K{i}", i % 2, 1] for i in range(10)])
     r = roles(import_files(tmp_path / "x.db", [f]), "x")
     assert r["advice_given"] == "category" and r["civil"] == "category"
+
+
+def test_a_code_list_with_client_in_its_export_prefix_is_still_a_code_list(tmp_path):
+    """Bluestem: "2026_Client_Data_code_lists.csv" holds problem codes; its codes in a report are not client details."""
+    from tests.conftest import write_csv
+    rows = [[f"AP{i:02d}", f"Planning topic {i}", "Autonomy & planning"] for i in range(1, 89)]
+    f = write_csv(tmp_path / "2026_Client_Data_code_lists.csv", ["code", "label", "group"], rows)
+    catalog = import_files(tmp_path / "x.db", [f])
+    t = catalog.tables[0]
+    assert t.reference and t.column("code").role == "category"
+
+
+def test_client_tables_are_never_code_lists(tmp_path):
+    from tests.conftest import write_csv
+    clients = write_csv(tmp_path / "clients.csv", ["client_id", "county"], [[f"C{i}", "Kent"] for i in range(30)])
+    lookup = write_csv(tmp_path / "client_lookup.csv", ["client_id", "opened_date"],
+                       [[f"C{i}", "2026-01-02"] for i in range(30)])
+    catalog = import_files(tmp_path / "x.db", [clients, lookup])
+    assert not catalog.table("clients").reference
+    assert not catalog.table("client_lookup").reference  # dates mean records, not codes
