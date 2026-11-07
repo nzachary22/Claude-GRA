@@ -61,6 +61,8 @@ _SENSITIVE_NAME = re.compile(r"(^|_)(dob|birth|birthdate|date_of_birth|born)(_|$
 _FREE_TEXT_NAME = re.compile(r"(^|_)(note|notes|narrative|comment|comments|description|memo|summary|details)(_|$)")
 _CODE_TABLE_HINT = re.compile(r"(^|_)(code|codes|reference|lookup|lookups|crosswalk|definitions?|dictionary|"
                               r"types|categories|labels|levels|map|mapping|codebook|legend)(_|$)")
+_CODE_TABLE_END = re.compile(r"(^|_)(codes?|code_lists?|lookups?|crosswalk|definitions?|dictionary|codebook|legend|"
+                             r"categories|mapping)$")
 _PERSON_TABLE_HINT = re.compile(r"(client|person|people|individual|member|participant|applicant|customer|patient)")
 
 
@@ -293,7 +295,14 @@ def _is_reference(table: TableInfo) -> bool:
     A small export of cases or clients must never qualify, so a table without a
     code-list name also needs no record keys, dates or personal values.
     """
-    if table.rows > REFERENCE_MAX_ROWS or _PERSON_TABLE_HINT.search(table.name):
+    if table.rows > REFERENCE_MAX_ROWS:
+        return False
+    # A person word blocks a table ("clients", "client_intake"), unless the name ends as a code list,
+    # as in an export prefix: "2026_Client_Data_code_lists" holds codes, not clients. Such a table
+    # still passes only with no dates and none of the personal columns checked below.
+    person_named = bool(_PERSON_TABLE_HINT.search(table.name))
+    if person_named and not (_CODE_TABLE_END.search(table.name)
+                             and not any(c.role == "date" for c in table.columns)):
         return False
     # A notes column in a table named as a code list explains the codes; elsewhere it stays withheld.
     code_list = bool(_CODE_TABLE_HINT.search(table.name))

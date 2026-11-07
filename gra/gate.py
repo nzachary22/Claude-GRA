@@ -104,7 +104,9 @@ class QueryGate:
         }
         self._roles = {(t.name, c.name): c.role for t in catalog.tables for c in t.columns}
         self._hidden_columns = {(t, c) for (t, c), r in self._roles.items() if r == "free_text"}
-        self._protected_values = self._load_values(("identifier", "free_text"))
+        # A value that some category column also holds (a problem code like "AP01" that cases are grouped
+        # by) is shared with the AI anyway, so it is not a secret even where a code list stores it as a key.
+        self._protected_values = self._load_values(("identifier", "free_text")) - self._load_values(("category",))
         # Result cells may never equal a stored personal value, even after case or
         # spacing changes (for example lower(client)): identifiers, notes, birth
         # dates and other unlisted text.
