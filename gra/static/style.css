@@ -159,3 +159,11 @@ td.explainable:hover, td.explainable:focus { outline: 2px solid var(--accent); o
 .considerations .link[aria-pressed="true"] { font-weight: 600; }
 .considerations .now { font-size: 11px; font-weight: 600; color: var(--ok); margin-left: 4px; }
 .considerations button:not(.chosen) .now { color: var(--muted); font-weight: 400; }
+
+/* Settings: forget a saved key */
+.forget-line { margin: -4px 0 8px; }
+/* Browser version: shown while the assistant starts, and short download messages */
+.booting { max-width: 1148px; margin: 24px 16px; }
+@media (min-width: 1180px) { .booting { margin: 24px auto; } }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #222; color: #fff;
+  padding: 10px 16px; border-radius: 6px; max-width: min(90vw, 560px); z-index: 50; }

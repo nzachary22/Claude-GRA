@@ -217,8 +217,8 @@ def test_prompt_flags_big_swings_from_the_past_report():
 
 
 def test_long_corrections_are_refused_not_cut(monkeypatch):
-    from gra import server
-    assert server.MAX_CORRECTION >= 8000
+    from gra import api
+    assert api.MAX_CORRECTION >= 8000
     from pathlib import Path
-    src = Path(server.__file__).read_text()
+    src = Path(api.__file__).read_text()
     assert "text[:4000]" not in src and "too long" in src

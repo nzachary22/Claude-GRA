@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
   <link rel="icon" href="/static/icon.ico">
-  <link rel="stylesheet" href="/static/style.css?v=18">
+  <link rel="stylesheet" href="/static/style.css?v=19">
 </head>
 <body>
   <header class="top">
-    <div class="brand">Grant Reporting Assistant <span class="ver">V.1.5.2</span></div>
+    <div class="brand">Grant Reporting Assistant <span class="ver">V.2.0</span></div>
     <nav class="steps" aria-label="Progress">
       <span data-step="upload" class="active">1 Upload</span>
       <span data-step="prepare">2 Prepare</span>
@@ -40,6 +40,7 @@
         <button type="submit" class="primary">Save key</button>
       </form>
       <p class="muted" id="key-help"></p>
+      <p class="forget-line"><button type="button" id="forget-key" class="link" hidden>Forget key</button></p>
       <p id="key-msg" class="msg" role="status"></p>
       <h3>Saved report files</h3>
       <p class="muted">The app keeps the uploads, database and AI record of the five most recent runs on this computer, then deletes older ones.</p>
@@ -144,6 +145,6 @@
     </section>
   </main>
   <div id="explain" class="explain" role="dialog" hidden></div>
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>

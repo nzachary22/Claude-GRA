@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Callable
 
 from .engine import Cancelled
@@ -38,8 +39,28 @@ def _check_provider(provider: str) -> str:
     return provider
 
 
+def in_browser() -> bool:
+    """True in the browser version (Python running inside the web page through Pyodide)."""
+    return sys.platform == "emscripten"
+
+
+def _browser_keys() -> dict:
+    """In the browser version keys are kept in this browser's own storage for the app, on this device only."""
+    try:
+        keys = json.loads((app_data_dir() / "keys.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return keys if isinstance(keys, dict) else {}
+
+
+def _write_browser_keys(keys: dict) -> None:
+    (app_data_dir() / "keys.json").write_text(json.dumps(keys), encoding="utf-8")
+
+
 def get_api_key(provider: str | None = None) -> str | None:
     p = PROVIDERS[_check_provider(provider or active_provider())]
+    if in_browser():
+        return _browser_keys().get(p["keyring_user"]) or None
     env = os.environ.get(p["env"]) or _windows_user_env(p["env"])
     if env:
         return env
@@ -118,7 +139,15 @@ def make_client(provider: str | None = None, model: str | None = None, effort: s
     if provider == "openai":
         from .llm_openai import EFFORT as OPENAI_EFFORT, MODEL as OPENAI_MODEL, OpenAIClient
 
+        if in_browser():
+            from .llm_web import BrowserOpenAI
+
+            return OpenAIClient(key, model or OPENAI_MODEL, effort or OPENAI_EFFORT, client=BrowserOpenAI(key))
         return OpenAIClient(key, model or OPENAI_MODEL, effort or OPENAI_EFFORT)
+    if in_browser():
+        from .llm_web import BrowserClaudeClient
+
+        return BrowserClaudeClient(key, model or MODEL, effort or EFFORT)
     return ClaudeClient(key, model or MODEL, effort or EFFORT)
 
 
@@ -136,13 +165,38 @@ def _windows_user_env(name: str) -> str | None:
 
 
 def save_api_key(key: str, provider: str = DEFAULT_PROVIDER) -> None:
+    if in_browser():
+        keys = _browser_keys()
+        keys[PROVIDERS[_check_provider(provider)]["keyring_user"]] = key.strip()
+        _write_browser_keys(keys)
+        return
     import keyring
 
     keyring.set_password(_KEYRING_SERVICE, PROVIDERS[_check_provider(provider)]["keyring_user"], key.strip())
 
 
+def delete_api_key(provider: str) -> None:
+    """Forget a saved key. A key set in an environment variable is not touched."""
+    user = PROVIDERS[_check_provider(provider)]["keyring_user"]
+    if in_browser():
+        keys = _browser_keys()
+        keys.pop(user, None)
+        _write_browser_keys(keys)
+        return
+    try:
+        import keyring
+
+        keyring.delete_password(_KEYRING_SERVICE, user)
+    except Exception:
+        pass
+
+
 def check_api_key(key: str, provider: str = DEFAULT_PROVIDER) -> str | None:
     """Return None if the key works, else a plain-language problem."""
+    if in_browser():
+        from .llm_web import check_api_key as check_in_browser
+
+        return check_in_browser(key, provider)
     if _check_provider(provider) == "openai":
         from .llm_openai import check_api_key as check_openai
 
