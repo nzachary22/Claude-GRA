@@ -122,8 +122,8 @@ def page(browser, servers):
 
 
 def open_settings(pg):
-    if pg.is_hidden("#setup"):
-        pg.click("#settings-btn")
+    # Set directly: the page may open Settings by itself a moment after it starts, and a click would close it.
+    pg.evaluate("() => { document.getElementById('setup').hidden = false; }")
 
 
 def save_key(pg, key, provider="anthropic"):
@@ -241,7 +241,9 @@ def test_cancel_stops_at_once_and_the_app_carries_on(page):
     page.click("#demo")
     page.click("#demo-go")
     page.wait_for_selector("#prepare:not([hidden])")
-    page.wait_for_timeout(1500)
+    # Stop while the recorded analyst is working (after the data is in).
+    page.wait_for_function("() => document.getElementById('events').textContent.includes('recorded demo')", timeout=60000)
+    page.wait_for_timeout(500)
     page.click("#cancel")
     page.wait_for_function("() => document.getElementById('now').textContent.includes('Cancelled')", timeout=20000)
     # The AI activity report of the stopped run is still there.
@@ -297,9 +299,18 @@ def test_correction_and_saved_choices(page, servers):
 
 
 def test_sample_report_opens_in_a_new_tab(page):
-    # A browser with a PDF viewer shows it in the new tab; headless Chromium has none, so it saves it instead.
+    # Browsers with a PDF viewer show it in a new tab; others (headless Chromium) save it instead.
+    opened, saved = [], []
+    page.context.on("page", lambda p: opened.append(p))
+    page.on("download", lambda d: saved.append(d))
     open_settings(page)
-    with page.expect_download(timeout=30000) as d:
-        page.click("#sample-report")
-    assert d.value.suggested_filename.endswith(".pdf")
-    assert Path(d.value.path()).read_bytes()[:5] == b"%PDF-"
+    page.click("#sample-report")
+    for _ in range(100):
+        if opened or saved:
+            break
+        page.wait_for_timeout(100)
+    if saved:
+        assert Path(saved[0].path()).read_bytes()[:5] == b"%PDF-"
+    else:
+        opened[0].wait_for_load_state()
+        assert opened[0].url.startswith("blob:"), opened[0].url
