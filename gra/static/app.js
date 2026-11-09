@@ -48,6 +48,7 @@
       ? `${KEY_HELP[p].help} A key is already saved; paste a new one only to replace it.`
       : KEY_HELP[p].help;
     $("key-input").required = !saved;
+    $("forget-key").hidden = !saved;
     document.querySelectorAll(".key-state").forEach((el) => {
       const k = el.dataset.for;
       el.textContent = s?.keys?.[k] ? (k === s.provider ? "· key saved, in use" : "· key saved") : "";
@@ -97,6 +98,16 @@
       $("setup").hidden = false;
       msg("key-msg", `Saved. New reports will use ${p === "openai" ? "OpenAI" : "Anthropic Claude"}.`, "ok");
       setTimeout(closeSetup, 1200);
+    } catch (err) { msg("key-msg", err.message, "err"); }
+  };
+
+  $("forget-key").onclick = async () => {
+    const p = chosen(), label = p === "openai" ? "OpenAI" : "Anthropic Claude";
+    if (!confirm(`Forget the saved ${label} key? You can paste it again at any time.`)) return;
+    try {
+      await api(`/api/key/${p}`, { method: "DELETE" });
+      await checkStatus();
+      msg("key-msg", `The ${label} key was removed.`, "ok");
     } catch (err) { msg("key-msg", err.message, "err"); }
   };
 
@@ -238,7 +249,7 @@
 
   $("start").onclick = async () => {
     $("start").disabled = true;
-    msg("upload-msg", "Uploading…");
+    msg("upload-msg", "Reading the files…");
     const s = await checkStatus();
     if (!s.has_key) {
       $("setup").hidden = false;
