@@ -3,6 +3,7 @@
 import io
 
 from docx import Document
+from docx.oxml.ns import qn
 from fastapi.testclient import TestClient
 
 from gra.activity import read_events
@@ -115,3 +116,33 @@ def test_report_download_including_after_restart(tmp_path, monkeypatch, tiny_fil
     assert res.status_code == 200 and "ai-activity-report" in res.headers["content-disposition"]
     assert TestClient(create_app(lambda: None)).get(f"/api/runs/{run_id}/activity-report").status_code == 200
     assert client.get("/api/runs/aaaaaaaaaaaa/activity-report").status_code == 404
+
+
+def test_a_refused_select_star_is_described_as_such_and_linked_to_its_rewrite(tiny_db, tmp_path):
+    purpose = "Counting cases by problem"
+    steps = [
+        [("run_query", {"purpose": purpose, "sql": "WITH k AS (SELECT * FROM cases) "
+                                                   "SELECT problem_code, COUNT(*) AS n FROM k GROUP BY problem_code"})],
+        [("run_query", {"purpose": purpose, "sql": "WITH k AS (SELECT problem_code FROM cases) "
+                                                   "SELECT problem_code, COUNT(*) AS n FROM k GROUP BY problem_code"})],
+        [("submit_tables", {"report": {"organization": "Example Center"}, "tables": [gender_table("Q1")]})],
+    ]
+    db, catalog = tiny_db
+    gate = QueryGate(db, catalog)
+    path = tmp_path / "b.jsonl"
+    ReportSession(gate, describe(db, catalog), [], ("2025-01-01", "2025-12-31"), ScriptedModel(steps),
+                  activity_path=path).run()
+    rows = [p for p in build_packets(read_events(path), gate.contains_protected) if p.request == purpose]
+    assert [p.status for p in rows] == [DENIED, SENT]
+    assert "SELECT *" in rows[0].response and "individual records" not in rows[0].response
+    assert rows[0].response.endswith(f"Rewritten and approved as packet {rows[1].number}.")
+    assert len(rows[0].response) <= 175
+
+
+def test_packet_rows_never_split_across_pages(tiny_db, tmp_path):
+    _, gate, events, catalog = run(tiny_db, tmp_path)
+    doc, paragraphs, _ = text_of(to_report_docx(events, catalog, gate.contains_protected, gate.protected_value_count()))
+    rows = doc.tables[0].rows
+    assert all(r._tr.trPr is not None and r._tr.trPr.find(qn("w:cantSplit")) is not None for r in rows)
+    # The closing notes come before the long table, so the report ends on the table.
+    assert paragraphs.index("Keep in mind") < paragraphs.index("Information packets")

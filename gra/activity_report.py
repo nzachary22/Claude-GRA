@@ -12,15 +12,24 @@ import re
 from dataclasses import dataclass
 
 from .activity import sent_text, service_names
+from .exports import keep_row, repeat_header
 from .importer import Catalog
 
 SENT, DENIED, REVIEW = "Sent to AI", "Denied", "Sent to AI: REVIEW"
 PROTECTED_ROLES = ("identifier", "sensitive", "free_text")
 _DENIAL_REASONS = [
-    (re.compile(r"outermost SELECT|individual records|SELECT \*", re.I), "asked for individual records rather than totals"),
+    # Most specific first: each pattern matches one family of the privacy gate's refusal messages.
+    (re.compile(r"SELECT \* is not allowed", re.I),
+     "used SELECT *, a SQL form the privacy check does not allow anywhere in a query"),
+    (re.compile(r"outermost SELECT", re.I), "asked for individual records rather than totals"),
     (re.compile(r"identifier", re.I), "tried to use a protected ID in a way that is not allowed"),
-    (re.compile(r"raw personal|raw values|raw column|MIN/MAX|buckets", re.I), "asked for detail too close to individual values"),
+    (re.compile(r"mixes a raw column", re.I), "combined a total with an ungrouped column, which SQL cannot total"),
+    (re.compile(r"raw personal|raw values|MIN/MAX|buckets", re.I), "asked for detail too close to individual values"),
     (re.compile(r"budget", re.I), "the query limit for this report was reached"),
+    (re.compile(r"syntax error", re.I), "the query had a SQL syntax error"),
+    (re.compile(r"Function \w+ is not allowed", re.I), "used a SQL function that is not allowed"),
+    (re.compile(r"took too long", re.I), "the query took too long and was stopped"),
+    (re.compile(r"more than \d+ rows|more memory", re.I), "the result was too large; it needed fewer groups"),
     (re.compile(r"not allowed|not available|read-only", re.I), "used an operation or field that is not allowed"),
 ]
 
@@ -82,10 +91,13 @@ def build_packets(events: list[dict], is_protected) -> list[Packet]:
     uses = {b.get("id"): b for e in events if e["kind"] == "response"
             for b in e.get("content") or [] if b.get("type") == "tool_use"}
     rows: list[tuple[str, str, str]] = []
+    query_purpose: dict[int, str] = {}  # row index -> purpose, for run_query packets only
 
-    def add(status, request, response, checked=""):
+    def add(status, request, response, checked="", purpose=None):
         if status == SENT and checked and is_protected(checked):
             status = REVIEW
+        if purpose is not None:
+            query_purpose[len(rows)] = purpose
         rows.append((status, _short(request), _short(response, 170)))
 
     for e in events:
@@ -118,10 +130,11 @@ def build_packets(events: list[dict], is_protected) -> list[Packet]:
                 use = uses.get(b.get("tool_use_id"), {})
                 name, args, content = use.get("name"), use.get("input") or {}, str(b.get("content", ""))
                 if name == "run_query":
+                    purpose = args.get("purpose") or "Calculation"
                     if b.get("is_error"):
-                        add(DENIED, args.get("purpose") or "Calculation", _denial(content))
+                        add(DENIED, purpose, _denial(content), purpose=purpose)
                     else:
-                        add(SENT, args.get("purpose") or "Calculation", _query_summary(content), content)
+                        add(SENT, purpose, _query_summary(content), content, purpose=purpose)
                 elif name == "submit_tables":
                     if b.get("is_error"):
                         add(SENT, "Submit finished tables", "List of table problems for the AI to fix; no client records", content)
@@ -134,7 +147,21 @@ def build_packets(events: list[dict], is_protected) -> list[Packet]:
         if confirmations:
             count = len(confirmations)
             add(SENT, f"Record {count} note{'' if count == 1 else 's'} for you", "Confirmation only; no data", "\n".join(confirmations))
+    _note_reruns(rows, query_purpose)
     return [Packet(i, *row) for i, row in enumerate(rows, start=1)]
+
+
+def _note_reruns(rows: list[tuple[str, str, str]], query_purpose: dict[int, str]) -> None:
+    """Point a denied query to the later query with the same purpose that was approved, if any,
+    so a reader sees the AI rewrote it rather than giving up on that calculation."""
+    for i, purpose in query_purpose.items():
+        if rows[i][0] != DENIED:
+            continue
+        for j in sorted(k for k in query_purpose if k > i and query_purpose[k] == purpose):
+            if rows[j][0] != DENIED:
+                status, request, response = rows[i]
+                rows[i] = (status, request, f"{response} Rewritten and approved as packet {j + 1}.")
+                break
 
 
 def _report_name(events: list[dict]) -> str:
@@ -230,9 +257,17 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
     bullets("Stayed on this computer", _local_lines(catalog))
     bullets("Sent to the AI", _sent_lines(catalog, events, packets))
 
+    bullets("Keep in mind", [
+        "Uploaded reports go to the AI in full. Their text is checked first for names and IDs from your data, but images and scanned PDFs cannot be checked. Review them for client details.",
+        "The automatic check skips birth dates and short or number-only values, because they match ordinary numbers and dates.",
+        f"This shows what this app sent. How the AI service stores data depends on your {service_names(start)[1]} account terms.",
+        "The complete word-for-word record is available from Technical details in the app.",
+    ])
+
+    # The long packet table comes last, so the report never ends on a page holding only a few closing lines.
     doc.add_heading("Information packets", level=1)
     doc.add_paragraph("Scan this table for anything concerning. AI requests are in the AI's own words; "
-                      "response summaries are written by the app from what was actually sent.")
+                      "response summaries are written by the app from what was actually sent.").paragraph_format.keep_with_next = True
     widths = (Inches(0.8), Inches(1.3), Inches(3.3), Inches(4.0))
     table = doc.add_table(rows=1, cols=4)
     table.style = "Table Grid"
@@ -253,25 +288,20 @@ def to_report_docx(events: list[dict], catalog: Catalog, is_protected, protected
         shading.set(qn("w:color"), "auto")
         shading.set(qn("w:fill"), "D9E2F3")
         cell._tc.get_or_add_tcPr().append(shading)
-    header = table.rows[0]._tr.get_or_add_trPr()
-    repeat = OxmlElement("w:tblHeader")
-    repeat.set(qn("w:val"), "true")
-    header.append(repeat)
+    repeat_header(table.rows[0])
     for p in packets:
-        cells = table.add_row().cells
+        row = table.add_row()
+        keep_row(row)  # a packet's text never splits across two pages
+        cells = row.cells
         flagged = p.status != SENT
         color = RGBColor(0xB4, 0x23, 0x18) if flagged else None
         fill(cells[0], str(p.number), widths[0])
         fill(cells[1], p.status, widths[1], bold=flagged, color=color)
         fill(cells[2], p.request, widths[2])
         fill(cells[3], p.response, widths[3])
+    for col, width in zip(table.columns, widths):  # Word reads cell widths, other editors the grid
+        col.width = width
 
-    bullets("Keep in mind", [
-        "Uploaded reports go to the AI in full. Their text is checked first for names and IDs from your data, but images and scanned PDFs cannot be checked. Review them for client details.",
-        "The automatic check skips birth dates and short or number-only values, because they match ordinary numbers and dates.",
-        f"This shows what this app sent. How the AI service stores data depends on your {service_names(start)[1]} account terms.",
-        "The complete word-for-word record is available from Technical details in the app.",
-    ])
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()

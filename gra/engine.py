@@ -77,7 +77,8 @@ How the data access works:
 - Sensitive columns (role=sensitive, such as birth dates) may be used in calculations (for example age on a date) but only output in bucketed form. Dates, measures and text must be bucketed (strftime, CASE ranges) before they appear in the final output; at most 120 distinct buckets per column and 500 result rows.
 - Free-text columns are withheld and cannot be queried. GROUP_CONCAT and similar list functions are blocked.
 - Name output columns in plain English, such as preferred_language or cases_closed, never abbreviations, because the names appear in a report the user reads.
-- If a query is refused, the message tells you why; rewrite it. Counts of 0 and 1 are normal results and are never suppressed.
+- If a query is refused, the message tells you why; rewrite it. Counts of 0 and 1 are normal results and are never suppressed. If a result includes "check", read it and rerun the query if it applies.
+- Outer joins: when you LEFT JOIN a category or code list to records so that empty categories still show, a category with no records still produces one row whose joined columns are all NULL. Count records with COUNT(joined.column), not COUNT(*), and count missing values only on matched rows (joined.key IS NOT NULL AND joined.field IS NULL), or every empty category reports one record or one missing value.
 
 Reporting rules:
 - Reproduce each table of the reference report as faithfully as possible: titles, column headers, row labels, categories, ordering, headings, subtotals and totals. Include every category the report shows, even when its count is zero.
@@ -433,8 +434,11 @@ class ReportSession:
             self._emit("refused", f"{purpose} (query adjusted)")
             return f"Refused: {e}", True
         self._emit("query", purpose)
-        payload = json.dumps({"query_id": result.query_id, "columns": result.columns, "rows": result.rows},
-                             default=str)
+        body = {"query_id": result.query_id}
+        if result.advice:  # ahead of the rows, so a long result's truncation never cuts it
+            body["check"] = result.advice
+        body.update(columns=result.columns, rows=result.rows)
+        payload = json.dumps(body, default=str)
         if len(payload) > self.limits.max_result_chars:
             payload = payload[: self.limits.max_result_chars] + ' ... (truncated; aggregate further to see all rows)'
         return payload, False
