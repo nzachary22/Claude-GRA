@@ -75,6 +75,7 @@ class QueryResult:
     columns: list[str]
     rows: list[list]
     elapsed_ms: int = 0
+    advice: list[str] = field(default_factory=list)  # checks for the AI on how the query counts; no data
 
 
 @dataclass
@@ -114,6 +115,8 @@ class QueryGate:
                                 | {_norm(v) for v in self._load_values(("sensitive",))}
                                 | self._rare_text_values())
         self._scope_by_select: dict[int, Scope] = {}
+        self._reference_tables = {t.name for t in catalog.tables if t.reference}
+        self._advice: list[str] = []
 
     # ------------------------------------------------------------ public
 
@@ -121,7 +124,8 @@ class QueryGate:
         safe_sql, bucket_cols = self.check(sql)
         columns, rows, elapsed = self._execute(safe_sql)
         self._check_result(columns, rows, bucket_cols)
-        result = QueryResult(f"Q{len(self.log) + 1}", safe_sql, purpose, columns, rows, elapsed)
+        result = QueryResult(f"Q{len(self.log) + 1}", safe_sql, purpose, columns, rows, elapsed,
+                             advice=list(self._advice))
         self.log.append(result)
         return result
 
@@ -173,7 +177,59 @@ class QueryGate:
         for select in finals:
             scope = _scope_for(root, select)
             bucket_cols |= self._check_final(scope, taints, select)
+        self._advice = self._outer_join_advice(tree)
         return tree.sql(dialect="sqlite"), bucket_cols
+
+    def _outer_join_advice(self, tree: exp.Expression) -> list[str]:
+        """Spot a common counting slip, without refusing the query.
+
+        When a code list (every category, so that zero rows still show) is LEFT JOINed to the
+        records being counted, a category with no records still yields one row whose joined
+        columns are all blank. COUNT(*) then counts it as 1, and an IS NULL test on a joined
+        column counts it as a missing value. The AI is told, so it can rewrite the query.
+        """
+        ctes = {c.alias_or_name: c.this for c in tree.find_all(exp.CTE)}
+
+        def only_reference(name: str, seen: tuple = ()) -> bool:
+            if name in ctes:
+                if name in seen:
+                    return False
+                tables = [t.name for t in ctes[name].find_all(exp.Table)]
+                return bool(tables) and all(only_reference(t, seen + (name,)) for t in tables)
+            return name in self._reference_tables
+
+        advice = []
+        for select in tree.find_all(exp.Select):
+            source = select.args.get("from") or select.args.get("from_")  # key differs across sqlglot versions
+            joins = select.args.get("joins") or []
+            if not (source and joins and select.args.get("group")) or not isinstance(source.this, exp.Table):
+                continue
+            if not only_reference(source.this.name):
+                continue
+            outer = {j.this.alias_or_name for j in joins if (j.side or "").upper() in ("LEFT", "FULL")}
+            if not outer:
+                continue
+            flagged = []
+            for proj in select.expressions:
+                for agg in proj.find_all(exp.AggFunc):
+                    star = isinstance(agg, exp.Count) and isinstance(agg.this, exp.Star)
+                    tests = [i for i in agg.find_all(exp.Is) if isinstance(i.expression, exp.Null)
+                             and isinstance(i.this, exp.Column) and i.this.table in outer]
+                    guarded = any(isinstance(i.parent, exp.Not) for i in tests)
+                    blanks = any(not isinstance(i.parent, exp.Not) for i in tests) and not guarded
+                    if star or blanks:
+                        flagged.append(proj.alias_or_name)
+                        break
+            if flagged:
+                alias = sorted(outer)[0]
+                advice.append(
+                    f"Check {', '.join(dict.fromkeys(flagged))}: categories from {source.this.name} with no "
+                    f"matching rows in the LEFT JOIN still appear once with every joined column blank, so "
+                    f"COUNT(*) counts them as 1 and an IS NULL test on a joined column counts them as missing. "
+                    f"If that is not intended, count a joined column instead (COUNT({alias}.<column>)) and "
+                    f"test for blanks only on matched rows ({alias}.<join column> IS NOT NULL AND ...), "
+                    f"then run the query again.")
+        return advice
 
     # ------------------------------------------------------------ analysis
 

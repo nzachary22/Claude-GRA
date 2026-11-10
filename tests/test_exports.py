@@ -129,3 +129,25 @@ def test_word_header_rows_repeat_and_stay_compact():
     assert table.rows[1]._tr.trPr is None or table.rows[1]._tr.trPr.find(qn("w:tblHeader")) is None
     run = table.rows[0].cells[1].paragraphs[0].runs[0]
     assert run.font.size == header_font_size(12) and run.bold
+
+
+def test_word_rows_never_split_and_short_tables_stay_together():
+    from docx.oxml.ns import qn
+    from gra.exports import KEEP_TOGETHER_ROWS
+    [t], notes = sample()
+    t.subtitle = "Calendar year"
+    long = Table("t2", "Long table", "", ["Count"], [Row("Section", "heading", 0, [Cell()])] + [
+        Row(f"Row {i}", "detail", 1, [Cell(i)]) for i in range(KEEP_TOGETHER_ROWS + 5)])
+    doc = Document(io.BytesIO(to_docx([t, long], notes, "Report", "2025")))
+
+    def kept(row):
+        return all(p.paragraph_format.keep_with_next for c in row.cells for p in c.paragraphs)
+
+    for table in doc.tables:
+        assert all(r._tr.trPr.find(qn("w:cantSplit")) is not None for r in table.rows)
+    short, tall = doc.tables
+    assert all(kept(r) for r in short.rows[:-1]) and not kept(short.rows[-1])
+    assert kept(tall.rows[1])  # its section heading stays with the first row under it
+    assert not any(kept(r) for r in tall.rows[2:])  # a long table may break between rows
+    subtitle = next(p for p in doc.paragraphs if p.text == "Calendar year")
+    assert subtitle.paragraph_format.keep_with_next

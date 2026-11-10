@@ -14,6 +14,7 @@ import http.server
 import io
 import json
 import os
+import re
 import socket
 import threading
 from pathlib import Path
@@ -168,7 +169,8 @@ def prepare_sample_report(pg):
 
 
 def test_demo_gives_the_desktop_figures_and_downloads(page, tmp_path):
-    assert page.text_content(".ver") == "V.2.0"
+    from gra import __version__
+    assert page.text_content(".ver") == "V." + re.sub(r"\.0$", "", __version__)  # as app.js shows it
     open_settings(page)
     page.click("#demo")
     page.click("#demo-go")

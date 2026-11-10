@@ -167,3 +167,17 @@ def test_correction_can_change_the_reporting_period(tiny_db):
     # A later correction that leaves the period out keeps the changed one.
     session.correct("Keep everything the same.")
     assert session.period == ("2025-01-01", "2025-06-30")
+
+
+def test_query_result_carries_the_outer_join_check(tiny_db):
+    sql = ("WITH k AS (SELECT case_id, problem_code FROM cases WHERE problem_code = '01') "
+           "SELECT p.problem_code, COUNT(*) AS cases FROM problem_codes p LEFT JOIN k ON k.problem_code = p.problem_code "
+           "GROUP BY p.problem_code")
+    session, _ = make(tiny_db, [[("run_query", {"sql": sql, "purpose": "Cases by problem"}),
+                                 ("run_query", {"sql": GENDER_SQL, "purpose": "Counting"})],
+                                [("submit_tables", {"tables": [gender_table("Q2")]})]])
+    session.run()
+    results = [json.loads(b["content"]) for m in session.messages if isinstance(m.get("content"), list)
+               for b in m["content"] if b.get("type") == "tool_result" and b["content"].startswith("{")]
+    assert list(results[0])[:2] == ["query_id", "check"] and "COUNT(*)" in results[0]["check"][0]
+    assert "check" not in results[1]

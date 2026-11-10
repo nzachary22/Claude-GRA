@@ -82,6 +82,7 @@ def _gap_lines(table: Table) -> list[str]:
 # ---------------------------------------------------------------- Word
 
 WIDE_TABLE_COLUMNS = 6  # tables with more figure columns go on landscape pages
+KEEP_TOGETHER_ROWS = 20  # a table with this many rows or fewer starts on a new page rather than splitting
 
 
 def header_font_size(columns: int):
@@ -90,17 +91,34 @@ def header_font_size(columns: int):
     return Pt(9) if columns <= 4 else Pt(8) if columns <= 8 else Pt(7) if columns <= 10 else Pt(6.5)
 
 
-def repeat_header(row) -> None:
-    """Repeat this row at the top of every page the table continues onto."""
+def keep_row(row, with_next: bool = False) -> None:
+    """Never split this row across pages; with_next also keeps it on the same page as the next row."""
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     tr_pr = row._tr.get_or_add_trPr()
+    if tr_pr.find(qn("w:cantSplit")) is None:
+        split = OxmlElement("w:cantSplit")
+        split.set(qn("w:val"), "true")
+        tr_pr.insert(0, split)  # the schema puts cantSplit ahead of tblHeader
+    if with_next:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                p.paragraph_format.keep_with_next = True
+
+
+def repeat_header(row) -> None:
+    """Repeat this row at the top of every page the table continues onto, kept with the first row."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    keep_row(row, with_next=True)
     el = OxmlElement("w:tblHeader")
     el.set(qn("w:val"), "true")
-    tr_pr.append(el)
-    split = OxmlElement("w:cantSplit")
-    split.set(qn("w:val"), "true")
-    tr_pr.append(split)
+    row._tr.get_or_add_trPr().append(el)
+
+
+def keep_lines(rows: int) -> bool:
+    """A table this short is kept on one page rather than split, when it fits on a fresh page."""
+    return rows <= KEEP_TOGETHER_ROWS
 
 
 def table_orientation(t: Table, page_orientation: str | None = None) -> str:
@@ -173,7 +191,9 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
         orient(table_orientation(t, page_orientation) == "landscape")
         doc.add_heading(t.title, level=1)
         if t.subtitle:
-            doc.add_paragraph(t.subtitle).runs[0].italic = True
+            sub = doc.add_paragraph(t.subtitle)
+            sub.runs[0].italic = True
+            sub.paragraph_format.keep_with_next = True
         grid = doc.add_table(rows=1, cols=len(t.headers) + 1)
         grid.style = "Table Grid"
         grid.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -188,7 +208,6 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
                 el.set(qn("w:type"), "dxa")
                 mar.append(el)
             grid._tbl.tblPr.append(mar)
-        repeat_header(grid.rows[0])
         hdr = grid.rows[0].cells
         size = header_font_size(len(t.headers))
         for i, text in enumerate([t.row_header] + t.headers):
@@ -204,8 +223,11 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
                 if i:
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             shade(hdr[i], "D9E2F3")
-        for r in t.rows:
-            cells = grid.add_row().cells
+        repeat_header(grid.rows[0])  # after the text is set, which replaces the cell's paragraphs
+        whole = keep_lines(len(t.rows))
+        for n_row, r in enumerate(t.rows):
+            row = grid.add_row()
+            cells = row.cells
             cells[0].text = ("    " * r.indent) + r.label
             if r.kind == "heading":
                 merged = cells[0].merge(cells[-1])
@@ -213,6 +235,7 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
                 for run in merged.paragraphs[0].runs:
                     run.bold = True
                 shade(merged, "F2F2F2")
+                keep_row(row, with_next=True)  # a section heading never ends a page alone
                 continue
             if crowded:
                 for run in cells[0].paragraphs[0].runs:
@@ -234,6 +257,7 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
                 if r.kind == "total":
                     for cell in cells:
                         shade(cell, "EDEDED")
+            keep_row(row, with_next=whole and n_row < len(t.rows) - 1)
         # A readable label column; the figures share the rest.
         grid.autofit = False
         label_w = int(min(Inches(2.2), usable * (0.24 if wide else 0.3)))
@@ -258,12 +282,18 @@ def to_docx(tables: list[Table], notes: list[Note], title: str, period: str, rep
     if defs:
         orient(False)
         doc.add_heading("Reporting definitions", level=1)
+        # Set compactly, like the notes, so the closing definitions rarely leave a near-empty last page.
         for d in defs:
             if d.get("heading"):
-                doc.add_heading(d["heading"], level=3)
+                h = doc.add_heading(d["heading"], level=3)
+                h.paragraph_format.space_before = Pt(6)
+                h.paragraph_format.space_after = Pt(1)
             for para in d["text"].split("\n"):
                 if para.strip():
-                    doc.add_paragraph(para.strip())
+                    p = doc.add_paragraph(para.strip())
+                    p.paragraph_format.space_after = Pt(4)
+                    for run in p.runs:
+                        run.font.size = Pt(9)
 
     buf = io.BytesIO()
     doc.save(buf)

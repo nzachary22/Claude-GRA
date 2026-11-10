@@ -163,3 +163,38 @@ def test_out_of_memory_is_refused_not_a_crash(gate, monkeypatch):
     monkeypatch.setattr(gate, "_connect", Conn)
     with pytest.raises(QueryRefused, match="more memory"):
         gate.run("SELECT COUNT(*) AS n FROM cases")
+
+
+# ------------------------------------------------------------------ outer-join counting advice
+
+_EMPTY_CATEGORY = ("WITH housing AS (SELECT case_id, problem_code, closed FROM cases WHERE problem_code = '01') "
+                   "SELECT p.problem_code, {measure} FROM problem_codes p LEFT JOIN housing h "
+                   "ON h.problem_code = p.problem_code GROUP BY p.problem_code ORDER BY p.problem_code")
+
+
+def test_a_blank_test_over_an_empty_category_gets_a_check(gate):
+    r = gate.run(_EMPTY_CATEGORY.format(
+        measure="COUNT(h.case_id) AS cases, SUM(CASE WHEN h.closed IS NULL THEN 1 ELSE 0 END) AS not_closed"))
+    # The slip itself: categories 02 and 03 have no cases but report one "not closed" each.
+    assert [row[2] for row in r.rows[1:]] == [1, 1]
+    assert len(r.advice) == 1 and "not_closed" in r.advice[0] and "cases" not in r.advice[0].split(":")[0]
+
+
+def test_count_star_over_an_empty_category_gets_a_check(gate):
+    r = gate.run(_EMPTY_CATEGORY.format(measure="COUNT(*) AS cases"))
+    assert r.advice and "COUNT(*)" in r.advice[0]
+
+
+def test_correct_outer_join_counts_get_no_check(gate):
+    r = gate.run(_EMPTY_CATEGORY.format(
+        measure="COUNT(h.case_id) AS cases, "
+                "SUM(CASE WHEN h.case_id IS NOT NULL AND h.closed IS NULL THEN 1 ELSE 0 END) AS not_closed"))
+    assert r.advice == []
+    assert [row[1:] for row in r.rows[1:]] == [[0, 0], [0, 0]]
+
+
+def test_records_left_joined_to_details_get_no_check(gate):
+    # Cases are the counted unit here; a case with no client row is still one case.
+    r = gate.run("SELECT k.problem_code, COUNT(*) AS cases, SUM(CASE WHEN c.gender IS NULL THEN 1 ELSE 0 END) AS no_gender "
+                 "FROM cases k LEFT JOIN clients c ON c.client_id = k.client_id GROUP BY k.problem_code")
+    assert r.advice == []
