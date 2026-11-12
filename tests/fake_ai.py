@@ -28,6 +28,7 @@ class Conversations:
     def __init__(self):
         self.models: dict[str, DemoModel] = {}
         self.requests: list[dict] = []
+        self.hiccups = 0  # replies to break part-way with an "overloaded" error, as a busy service does
 
     def reply(self, service: str, messages: list):
         if len(messages) == 1 or service not in self.models:
@@ -137,7 +138,12 @@ class Handler(BaseHTTPRequestHandler):
         STATE.requests.append({"path": self.path, "headers": dict(self.headers), "body": body})
         if not self.authorized():
             return
-        if self.path == "/v1/messages":
+        if self.path == "/v1/messages" and STATE.hiccups:
+            STATE.hiccups -= 1
+            self.send(200, sse([("message_start", {"type": "message_start", "message": {"model": "x"}}),
+                                ("error", {"type": "error", "error": {"type": "overloaded_error",
+                                                                     "message": "Overloaded"}})]), "text/event-stream")
+        elif self.path == "/v1/messages":
             reply = STATE.reply("anthropic", body.get("messages") or [])
             self.send(200, anthropic_stream(reply), "text/event-stream")
         elif self.path == "/v1/responses":

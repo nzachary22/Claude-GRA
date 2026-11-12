@@ -16,7 +16,7 @@ import os
 import sys
 from typing import Callable
 
-from .engine import Cancelled
+from .engine import Cancelled, TemporaryAIError
 from .paths import app_data_dir
 
 # The one model each service uses, chosen from live tests on the sample organizations (2026-11-05).
@@ -223,6 +223,36 @@ def status_message(code: int, detail: str) -> str:
     return f"The AI service returned an error ({code})."
 
 
+# Replies that mean the AI service had a passing problem on its side, worth waiting out and sending again.
+TEMPORARY_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}
+_TEMPORARY_TYPES = ("overloaded", "api_error", "server_error", "rate_limit", "timeout")
+
+
+def temporary_problem(code: int, detail: str) -> str | None:
+    """A plain-language message if an error reply is a passing problem, else None.
+
+    Code 200 is an error sent in the middle of a streamed reply, which is how a service that becomes
+    overloaded part-way through a long answer reports it."""
+    d = detail.lower()
+    if "credit balance" in d or "insufficient_quota" in d or "exceeded your current quota" in d:
+        return None
+    if "overloaded" in d or code == 529:
+        return "The AI service is overloaded right now."
+    if code == 429 or "rate_limit" in d:
+        return "The AI service is busy (rate limit)."
+    if code in TEMPORARY_STATUS or code >= 500 or (code in (0, 200) and any(t in d for t in _TEMPORARY_TYPES)):
+        return f"The AI service had a temporary problem ({code or 'connection'})."
+    if code == 200:
+        return "The AI service's reply was interrupted."
+    return None
+
+
+def is_connection_error(e: Exception) -> bool:
+    """A dropped or timed-out connection, including one lost part-way through a streamed reply."""
+    module = type(e).__module__.split(".")[0]  # httpx, httpx2 (newer Anthropic SDK), httpcore...
+    return module.startswith(("httpx", "httpcore")) or isinstance(e, (ConnectionError, TimeoutError))
+
+
 class ClaudeClient:
     provider = "anthropic"
 
@@ -252,9 +282,14 @@ class ClaudeClient:
                 return stream.get_final_message()
         except anthropic.AuthenticationError:
             raise RuntimeError("The saved API key was not accepted. Enter a new key in Settings.") from None
-        except anthropic.RateLimitError:
-            raise RuntimeError("The AI service is busy (rate limit). Try again in a minute.") from None
-        except anthropic.APIConnectionError:
-            raise RuntimeError("Could not reach the AI service. Check the internet connection.") from None
+        except anthropic.APIConnectionError:  # also covers timeouts; the SDK has already retried
+            raise TemporaryAIError("Could not reach the AI service (the connection dropped or timed out).") from None
         except anthropic.APIStatusError as e:
+            temporary = temporary_problem(e.status_code, str(e))
+            if temporary:
+                raise TemporaryAIError(temporary) from None
             raise RuntimeError(status_message(e.status_code, str(e))) from None
+        except Exception as e:
+            if is_connection_error(e):
+                raise TemporaryAIError("The connection to the AI service dropped part-way through a reply.") from None
+            raise

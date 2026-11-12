@@ -68,6 +68,20 @@ def parse_sse(text: str):
                 continue
 
 
+def _fail(status: int, text: str, problem) -> RuntimeError:
+    """The error to raise for a failed request: temporary (the run waits and tries again) or not."""
+    from .engine import TemporaryAIError
+    from .llm import temporary_problem
+
+    if status == 0:
+        return TemporaryAIError("Could not reach the AI service (the connection dropped or timed out).")
+    if status != 401:
+        temporary = temporary_problem(status, _error_detail(text))
+        if temporary:
+            return TemporaryAIError(temporary)
+    return RuntimeError(problem(status, text))
+
+
 def _error_detail(text: str) -> str:
     try:
         err = json.loads(text).get("error") or {}
@@ -91,8 +105,8 @@ def assemble_message(text: str) -> dict:
     message, blocks, partial = {}, {}, {}
     for event, data in parse_sse(text):
         kind = data.get("type") or event
-        if kind == "error":
-            raise RuntimeError(_anthropic_problem(500, json.dumps(data)))
+        if kind == "error":  # sent part-way through the reply, e.g. when the service becomes overloaded
+            raise _fail(200, json.dumps(data), _anthropic_problem)
         if kind == "message_start":
             message = dict(data.get("message") or {})
         elif kind == "content_block_start":
@@ -121,7 +135,9 @@ def assemble_message(text: str) -> dict:
             blocks[i]["input"] = {}
     message["content"] = [blocks[i] for i in sorted(blocks)]
     if "stop_reason" not in message:
-        raise RuntimeError("The AI service's reply was cut off. Try again.")
+        from .engine import TemporaryAIError
+
+        raise TemporaryAIError("The AI service's reply was cut off.")
     return message
 
 
@@ -155,7 +171,7 @@ class BrowserClaudeClient:
         params["stream"] = True
         status, text = _request("POST", f"{ANTHROPIC_URL}/messages", _anthropic_headers(self.key, betas), params)
         if status != 200:
-            raise RuntimeError(_anthropic_problem(status, text))
+            raise _fail(status, text, _anthropic_problem)
         message = assemble_message(text)
         return SimpleNamespace(content=message["content"], stop_reason=message.get("stop_reason"),
                                model=message.get("model"), usage=message.get("usage"))
@@ -209,16 +225,18 @@ class BrowserOpenAI:
         params["stream"] = True
         status, text = _request("POST", f"{OPENAI_URL}/responses", _openai_headers(self.key), params)
         if status != 200:
-            raise RuntimeError(_openai_problem(status, text))
+            raise _fail(status, text, _openai_problem)
         final = None
         for _, data in parse_sse(text):
             kind = data.get("type", "")
             if kind in ("response.completed", "response.incomplete", "response.failed"):
                 final = data.get("response")
-            elif kind == "error":
-                raise RuntimeError(_openai_problem(500, json.dumps({"error": data})))
+            elif kind == "error":  # sent part-way through the reply
+                raise _fail(200, json.dumps({"error": data}), _openai_problem)
         if final is None:
-            raise RuntimeError("The AI service's reply was cut off. Try again.")
+            from .engine import TemporaryAIError
+
+            raise TemporaryAIError("The AI service's reply was cut off.")
         return _Stream(final)
 
 
