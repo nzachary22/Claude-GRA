@@ -18,7 +18,7 @@ import json
 from types import SimpleNamespace
 from typing import Callable
 
-from .engine import Cancelled
+from .engine import Cancelled, TemporaryAIError
 
 MODEL = "gpt-6.1-sol"
 EFFORT = "xhigh"  # "very high"; at high it sometimes left a $0 figure blank in testing
@@ -173,6 +173,29 @@ def problem_message(e) -> str:
     return f"The AI service returned an error ({type(e).__name__})."
 
 
+def temporary_openai_problem(e: Exception) -> str | None:
+    """A plain-language message if an OpenAI error is a passing problem worth retrying, else None."""
+    from .llm import is_connection_error, temporary_problem
+
+    if is_connection_error(e):
+        return "The connection to the AI service dropped part-way through a reply."
+    if isinstance(e, RuntimeError) and "response.completed" in str(e):  # the stream ended early
+        return "The AI service's reply was cut off."
+    if type(e).__module__.split(".")[0] != "openai":
+        return None
+    import openai
+
+    if isinstance(e, openai.AuthenticationError):
+        return None
+    if isinstance(e, openai.APIConnectionError):  # also timeouts; the SDK has already retried
+        return "Could not reach the AI service (the connection dropped or timed out)."
+    if isinstance(e, openai.APIStatusError):
+        return temporary_problem(e.status_code, str(e))
+    if isinstance(e, openai.APIError):  # an error sent part-way through a streamed reply
+        return temporary_problem(200, f"{e} {getattr(e, 'code', '') or ''} {getattr(e, 'type', '') or ''}")
+    return None
+
+
 def check_api_key(key: str) -> str | None:
     """Return None if the key works, else a plain-language problem."""
     import openai
@@ -221,12 +244,19 @@ class OpenAIClient:
                     if should_cancel():
                         raise Cancelled()
                 response = stream.get_final_response()
-        except Cancelled:
+        except (Cancelled, TemporaryAIError):
             raise
         except Exception as e:
+            temporary = temporary_openai_problem(e)
+            if temporary:
+                raise TemporaryAIError(temporary) from None
             if type(e).__module__.split(".")[0] != "openai":
                 raise
             raise RuntimeError(problem_message(e)) from None
         if _get(response, "status") == "failed":
+            err = _get(response, "error")
+            code = str(_get(err, "code") or "") if err else ""
+            if code in ("server_error", "rate_limit_exceeded", "") or "overload" in code:
+                raise TemporaryAIError("The AI service could not complete the request (a problem on its side).")
             raise RuntimeError("The AI service could not complete the request. Try again.")
         return from_response(response)

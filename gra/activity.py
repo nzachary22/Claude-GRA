@@ -159,6 +159,9 @@ def render_text(events: list[dict], protected_hits: list[int], protected_checked
                            f"to {e['period'][0]} to {e['period'][1]} ---", ""]
         elif e["kind"] == "note":
             out += [head + f"LOCAL: the app recorded a {e.get('kind_of_note') or 'warning'} note: {e.get('text', '')} ---", ""]
+        elif e["kind"] == "service_problem":
+            out += [head + f"RECEIVED: no reply. {e.get('message', 'The AI service had a problem.')} "
+                           f"(try {e.get('attempt')}) ---", ""]
         elif e["kind"] == "response":
             out.append(head + f"RECEIVED from {e.get('model') or 'the AI'} ---")
             for b in e.get("content") or []:

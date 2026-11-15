@@ -211,6 +211,20 @@ def test_full_report_through_each_ai_service(page, servers, provider, tmp_path):
     assert page.errors == []
 
 
+def test_overloaded_reply_part_way_is_sent_again(page, servers, tmp_path):
+    """A passing "overloaded" error in the middle of a reply no longer stops the report (V.2.0.2)."""
+    from tests import fake_ai
+
+    _, _, state = servers
+    assert "Saved" in save_key(page, fake_ai.GOOD_KEY, "anthropic")
+    page.wait_for_timeout(1500)
+    state.hiccups = 1
+    prepare_sample_report(page)
+    assert state.hiccups == 0
+    assert figures(download(page, "#dl-excel")) == desktop_demo_figures(tmp_path)
+    assert page.errors == []
+
+
 def test_key_is_kept_in_this_browser_until_forgotten(page):
     from tests import fake_ai
 

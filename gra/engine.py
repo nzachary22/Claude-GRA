@@ -27,6 +27,9 @@ class Limits:
     max_turns: int = 50
     max_seconds: int = 1200
     max_result_chars: int = 30000
+    # Seconds to wait before sending a request again after a temporary AI service problem
+    # (overloaded, server error, dropped connection). One wait per extra try.
+    retry_waits: tuple = (10, 30, 60)
 
 
 @dataclass
@@ -58,6 +61,11 @@ def _options(raw) -> list[dict]:
 
 class Cancelled(Exception):
     pass
+
+
+class TemporaryAIError(RuntimeError):
+    """A problem on the AI service's side that usually clears by itself (overloaded, server error,
+    dropped connection). The reporting loop waits and sends the same request again."""
 
 
 class ModelClient(Protocol):
@@ -361,8 +369,7 @@ class ReportSession:
                 if turns >= self.limits.max_turns or time.monotonic() - start > self.limits.max_seconds:
                     raise RuntimeError("The assistant reached its working limit before finishing the tables.")
                 turns += 1
-                self._log_outgoing()
-                response = self.model.respond(SYSTEM_PROMPT, self.messages, TOOLS, self._cancel.is_set)
+                response = self._respond()
                 content = _get(response, "content") or []
                 stop = _get(response, "stop_reason")
                 self.activity.add("response", "received", content=[plain(b) for b in content],
@@ -403,6 +410,27 @@ class ReportSession:
             self.error = str(e) if isinstance(e, RuntimeError) else f"Unexpected problem: {type(e).__name__}: {e}"
             self._emit("error", self.error)
             self._close_dangling()
+
+    def _respond(self):
+        """Send the conversation, trying again after a temporary AI service problem."""
+        waits = tuple(self.limits.retry_waits)
+        for attempt in range(len(waits) + 1):
+            self._log_outgoing()
+            try:
+                return self.model.respond(SYSTEM_PROMPT, self.messages, TOOLS, self._cancel.is_set)
+            except TemporaryAIError as e:
+                self.activity.add("service_problem", "received", message=str(e), attempt=attempt + 1)
+                if attempt >= len(waits):
+                    raise RuntimeError(f"{e} The AI service kept having this problem after {attempt + 1} tries, "
+                                       "so the report was stopped. This is on the AI service's side; "
+                                       "please start the report again in a few minutes.") from None
+                self._emit("status", f"{e} Trying again in {waits[attempt]} seconds "
+                                     f"(try {attempt + 2} of {len(waits) + 1}).")
+                end = time.monotonic() + waits[attempt]
+                while time.monotonic() < end:  # short sleeps, so Cancel works (and the browser version can wait)
+                    if self._cancel.is_set():
+                        raise Cancelled()
+                    time.sleep(min(0.5, max(0.0, end - time.monotonic())))
 
     def _close_dangling(self):
         """Keep the transcript valid after an interruption, so a later correction can continue it."""
