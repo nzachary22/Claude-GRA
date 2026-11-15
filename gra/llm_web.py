@@ -242,24 +242,22 @@ class BrowserOpenAI:
 
 # ---------------------------------------------------------------- key check
 
-def check_api_key(key: str, provider: str) -> str | None:
-    """Return None if the key works, else a plain-language problem."""
-    from .llm import MODEL
+def key_test(key: str, provider: str, kind: str) -> tuple[int, str]:
+    """One tiny request with a new key, straight from this browser (see llm.check_api_key)."""
+    from .llm import KEY_TEST_PROMPT, MODEL
     from .llm_openai import MODEL as OPENAI_MODEL
 
-    key = key.strip()
     if provider == "openai":
-        status, text = _request("GET", f"{OPENAI_URL}/models/{OPENAI_MODEL}", _openai_headers(key), retries=1)
-        model = OPENAI_MODEL
-    else:
+        if kind == "lookup":
+            status, text = _request("GET", f"{OPENAI_URL}/models/{OPENAI_MODEL}", _openai_headers(key), retries=1)
+        else:
+            status, text = _request("POST", f"{OPENAI_URL}/responses", _openai_headers(key),
+                                    {"model": OPENAI_MODEL, "input": KEY_TEST_PROMPT, "max_output_tokens": 16,
+                                     "store": False}, retries=1)
+    elif kind == "lookup":
         status, text = _request("GET", f"{ANTHROPIC_URL}/models/{MODEL}", _anthropic_headers(key), retries=1)
-        model = MODEL
-    if status == 200:
-        return None
-    if status == 0:
-        return "Could not reach the AI service. Check the internet connection."
-    if status == 401:
-        return "That API key was not accepted."
-    if status in (403, 404):
-        return f"That API key does not have access to the model {model}."
-    return f"The AI service returned an error ({status})."
+    else:
+        status, text = _request("POST", f"{ANTHROPIC_URL}/messages", _anthropic_headers(key),
+                                {"model": MODEL, "max_tokens": 4,
+                                 "messages": [{"role": "user", "content": KEY_TEST_PROMPT}]}, retries=1)
+    return status, f"{_error_detail(text)} {text[:500]}" if status != 200 else ""

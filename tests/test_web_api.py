@@ -107,10 +107,22 @@ def test_openai_problems_reach_the_user_unchanged(monkeypatch):
 
 
 def test_key_check(monkeypatch):
-    monkeypatch.setattr(llm_web, "transport", lambda *a: (401, "{}"))
-    assert llm_web.check_api_key("k" * 30, "anthropic") == "That API key was not accepted."
-    monkeypatch.setattr(llm_web, "transport", lambda *a: (200, "{}"))
-    assert llm_web.check_api_key("k" * 30, "openai") is None
+    from gra import llm
+
+    monkeypatch.setattr(llm, "in_browser", lambda: True)
+    monkeypatch.setattr(llm_web.time, "sleep", lambda s: None)
+    sent = []
+    monkeypatch.setattr(llm_web, "transport", lambda *a: sent.append(a) or (401, "{}"))
+    problem, _ = llm.check_api_key("k" * 30, "anthropic")
+    assert problem.startswith("That API key was not accepted.")
+    method, url, headers, body = sent[0]
+    assert (method, url) == ("POST", "https://api.anthropic.com/v1/messages") and json.loads(body)["max_tokens"] == 4
+    sent.clear()
+    monkeypatch.setattr(llm_web, "transport", lambda *a: sent.append(a) or (200, "{}"))
+    assert llm.check_api_key("k" * 30, "openai") == (None, None)
+    method, url, headers, body = sent[0]
+    assert url == "https://api.openai.com/v1/responses" and json.loads(body)["max_output_tokens"] == 16
+    assert "reasoning" not in json.loads(body) and len(sent) == 1
 
 
 def test_browser_keys_are_kept_in_the_app_folder(monkeypatch):

@@ -92,7 +92,9 @@ BROWSERS = [b.strip() for b in os.environ.get("GRA_WEB_BROWSERS", "chromium").sp
 def browser(request):
     """Chromium (Chrome, Edge) by default; CI also runs Firefox and WebKit (Safari's engine)."""
     with playwright_api.sync_playwright() as p:
-        b = getattr(p, request.param).launch()
+        # GRA_CHROMIUM names a Chromium already on the machine (for example in a cloud test box).
+        path = os.environ.get("GRA_CHROMIUM") if request.param == "chromium" else None
+        b = getattr(p, request.param).launch(**({"executable_path": path} if path else {}))
         yield b
         b.close()
 
@@ -193,7 +195,7 @@ def test_full_report_through_each_ai_service(page, servers, provider, tmp_path):
 
     _, _, state = servers
     assert "not accepted" in save_key(page, "wrong-key-for-browser-tests-00000000", provider)
-    assert "Saved" in save_key(page, fake_ai.GOOD_KEY, provider)
+    assert "Key works" in save_key(page, fake_ai.GOOD_KEY, provider)
     page.wait_for_timeout(1500)
     state.requests.clear()
     prepare_sample_report(page)
@@ -216,7 +218,7 @@ def test_overloaded_reply_part_way_is_sent_again(page, servers, tmp_path):
     from tests import fake_ai
 
     _, _, state = servers
-    assert "Saved" in save_key(page, fake_ai.GOOD_KEY, "anthropic")
+    assert "Key works" in save_key(page, fake_ai.GOOD_KEY, "anthropic")
     page.wait_for_timeout(1500)
     state.hiccups = 1
     prepare_sample_report(page)
@@ -228,7 +230,7 @@ def test_overloaded_reply_part_way_is_sent_again(page, servers, tmp_path):
 def test_key_is_kept_in_this_browser_until_forgotten(page):
     from tests import fake_ai
 
-    assert "Saved" in save_key(page, fake_ai.GOOD_KEY)
+    assert "Key works" in save_key(page, fake_ai.GOOD_KEY)
     page.reload()
     page.wait_for_selector("#booting", state="detached", timeout=120000)
     status = page.evaluate("() => fetch('/api/status').then(r => r.json())")
@@ -261,10 +263,17 @@ def test_cancel_stops_at_once_and_the_app_carries_on(page):
     page.wait_for_function("() => document.getElementById('events').textContent.includes('recorded demo')", timeout=60000)
     page.wait_for_timeout(500)
     page.click("#cancel")
-    page.wait_for_function("() => document.getElementById('now').textContent.includes('Cancelled')", timeout=20000)
+    # The screen changes at once, with a way to start again.
+    page.wait_for_selector("#start-new", timeout=1500)
+    assert "Cancelled" in page.text_content("#now")
     # The AI activity report of the stopped run is still there.
     with page.expect_download(timeout=60000):
         page.click("#now a")
+    # Start a new report goes back to the first step with the same files still listed.
+    page.click("#start-new")
+    page.wait_for_selector("#upload:not([hidden])")
+    assert REPORT in page.text_content("#report-list") and "cases.csv" in page.text_content("#data-list")
+    assert not page.is_disabled("#start")
     # A fresh assistant is ready straight away: the demo runs again to the end.
     open_settings(page)
     page.click("#demo")
@@ -300,7 +309,7 @@ def test_delete_all_saved_runs(page):
 def test_correction_and_saved_choices(page, servers):
     from tests import fake_ai
 
-    assert "Saved" in save_key(page, fake_ai.GOOD_KEY)
+    assert "Key works" in save_key(page, fake_ai.GOOD_KEY)
     page.wait_for_timeout(1500)
     prepare_sample_report(page)
     page.fill("#correct-text", "Count clients by county of residence instead of office.")
@@ -330,3 +339,55 @@ def test_sample_report_opens_in_a_new_tab(page):
     else:
         opened[0].wait_for_load_state()
         assert opened[0].url.startswith("blob:"), opened[0].url
+
+
+def test_new_key_is_tried_before_it_is_saved(page, servers):
+    from tests import fake_ai
+
+    assert "was not accepted" in save_key(page, "wrong-key-0123456789abcdef")
+    fake_ai.STATE.key_test = (400, {"type": "error", "error": {"type": "invalid_request_error",
+                                                               "message": "Your credit balance is too low"}})
+    assert "no API credit left" in save_key(page, fake_ai.GOOD_KEY)
+    status = page.evaluate("() => fetch('/api/status').then(r => r.json())")
+    assert status["keys"]["anthropic"] is False  # neither key was saved
+    assert "Key works" in save_key(page, fake_ai.GOOD_KEY)
+    test = [r for r in fake_ai.STATE.requests if not r["body"].get("stream")][-1]
+    assert test["path"] == "/v1/messages" and test["body"]["max_tokens"] == 4
+
+
+def test_added_files_open_for_checking(page, tmp_path):
+    """Clicking an added file shows that exact copy: in a new tab when the browser can, else as a download."""
+    sheet = tmp_path / "budget.xlsx"
+    sheet.write_bytes(b"PK\x03\x04 not really a workbook")
+    page.set_input_files("#report-files", [str(SAMPLE / REPORT), str(sheet)])
+    page.set_input_files("#data-files", [str(SAMPLE / "cases.csv")])
+    SiteHandler.requests.clear()
+
+    with page.context.expect_page() as tab:
+        page.click("#data-list .file-open")
+    csv = tab.value
+    csv.wait_for_load_state()
+    assert csv.url.startswith("blob:") and (SAMPLE / "cases.csv").read_text().splitlines()[0] in csv.text_content("body")
+    csv.close()
+
+    with page.expect_download() as d:
+        page.click("#report-list .file-open >> text=budget.xlsx")
+    assert d.value.suggested_filename == "budget.xlsx" and Path(d.value.path()).read_bytes() == sheet.read_bytes()
+
+    # The PDF opens in a new tab (or downloads where the browser has no PDF viewer).
+    opened, saved = [], []
+    page.context.on("page", lambda p: opened.append(p))
+    page.on("download", lambda d: saved.append(d))
+    page.click(f"#report-list .file-open >> text={REPORT}")
+    for _ in range(100):
+        if opened or saved:
+            break
+        page.wait_for_timeout(100)
+    assert opened or saved
+    if saved:
+        assert Path(saved[0].path()).read_bytes() == (SAMPLE / REPORT).read_bytes()
+
+    # Nothing was sent anywhere, and the files are still listed.
+    assert page.ai_hits == [] and not [r for r in SiteHandler.requests if r.startswith("POST")]
+    assert page.eval_on_selector_all("#report-list .file-open", "b => b.length") == 2
+    assert page.errors == []

@@ -89,16 +89,21 @@
     e.preventDefault();
     const p = chosen();
     if (!$("key-input").value.trim()) { msg("key-msg", "Paste an API key.", "err"); return; }
-    msg("key-msg", "Checking the key…");
+    msg("key-msg", "Checking the key with a tiny test message (well under one cent)…");
+    const saveBtn = $("key-form").querySelector('button[type="submit"]');
+    saveBtn.disabled = true;  // one test per press
     try {
-      await api("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: $("key-input").value, provider: p }) });
+      const res = await api("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: $("key-input").value, provider: p }) });
       $("key-input").value = "";
       state.providerTouched = false;
       await checkStatus();
       $("setup").hidden = false;
-      msg("key-msg", `Saved. New reports will use ${p === "openai" ? "OpenAI" : "Anthropic Claude"}.`, "ok");
-      setTimeout(closeSetup, 1200);
+      const label = p === "openai" ? "OpenAI" : "Anthropic Claude";
+      if (res?.note) { msg("key-msg", `${res.note} New reports will use ${label}.`); return; }  // left open to be read
+      msg("key-msg", `Key works. New reports will use ${label}.`, "ok");
+      setTimeout(closeSetup, 1800);
     } catch (err) { msg("key-msg", err.message, "err"); }
+    finally { saveBtn.disabled = false; }
   };
 
   $("forget-key").onclick = async () => {
@@ -125,11 +130,24 @@
       ? `Estimate: usually ${big ? "5 to 15" : "3 to 10"} minutes and ${big ? "about $1 to $3" : "about $1 or less"} in AI charges, billed by ${p} to your account. Reports with many tables, and each correction you request, take longer and cost more.`
       : "";
   }
+  // Clicking an added file shows the exact copy that will be used. It is opened from this browser's own copy:
+  // nothing is uploaded or sent. Files a browser can show open in a new tab; Word and Excel files download.
+  const VIEWABLE = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    txt: "text/plain", md: "text/plain", csv: "text/plain", tsv: "text/plain", json: "text/plain" };
+  function openFile(f) {
+    if (!f) return;
+    const type = VIEWABLE[(f.name.split(".").pop() || "").toLowerCase()];
+    const href = URL.createObjectURL(type ? new Blob([f], { type: type.startsWith("text/") ? `${type};charset=utf-8` : type }) : f);
+    if (!type || !window.open(href, "_blank")) {  // a blocked new tab falls back to a download
+      const d = document.createElement("a"); d.href = href; d.download = f.name; document.body.appendChild(d); d.click(); d.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(href), 300000);
+  }
   function bindDrop(zoneId, inputId, listId, key) {
     const zone = $(zoneId), input = $(inputId);
     const render = () => {
       const list = state[key];
-      $(listId).innerHTML = list.map((f, i) => `<li><span>${esc(f.name)} <span class="size">${sizeText(f.size)}</span></span><button type="button" class="remove" data-i="${i}" aria-label="Remove ${esc(f.name)}" title="Remove">×</button></li>`).join("") +
+      $(listId).innerHTML = list.map((f, i) => `<li><span><button type="button" class="link file-open" data-i="${i}" title="Open this file to check it">${esc(f.name)}</button> <span class="size">${sizeText(f.size)}</span></span><button type="button" class="remove" data-i="${i}" aria-label="Remove ${esc(f.name)}" title="Remove">×</button></li>`).join("") +
         (list.length > 1 ? `<li class="clear"><button type="button" class="link clear-all">Clear all</button></li>` : "");
       $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
       $("preview").disabled = !state.dataFiles.length;
@@ -152,6 +170,7 @@
       const btn = e.target.closest("button");
       if (!btn) return;
       e.preventDefault(); e.stopPropagation();
+      if (btn.classList.contains("file-open")) { openFile(state[key][Number(btn.dataset.i)]); return; }
       if (btn.classList.contains("clear-all")) state[key] = [];
       else state[key].splice(Number(btn.dataset.i), 1);
       render();
@@ -307,7 +326,7 @@
 
   // ------------------------------------------------------------ prepare
   function startPolling(id) {
-    state.runId = id; state.seen = 0;
+    state.runId = id; state.seen = 0; state.stopped = null;
     history.replaceState(null, "", `#run=${id}`);
     $("events").innerHTML = ""; $("now").textContent = "Starting…"; $("cancel").hidden = false;
     $("bar").style.display = "";
@@ -321,6 +340,7 @@
     state.polling = true;
     let r;
     try { r = await api(`/api/runs/${state.runId}?since=${state.seen}`); } catch { return; } finally { state.polling = false; }
+    if (state.stopped === state.runId || r.id !== state.runId) return;  // Cancel was pressed while this was loading
     state.seen = r.event_count;
     for (const e of r.events) {
       const li = document.createElement("li");
@@ -330,24 +350,45 @@
       if (e.kind !== "refused") $("now").textContent = e.message;
     }
     $("events").scrollTop = $("events").scrollHeight;
+    state.lastPoll = r;
     if (r.status === "done") { clearInterval(state.timer); renderReview(r); }
-    else if (r.status === "failed" || r.status === "cancelled") {
-      clearInterval(state.timer);
-      $("bar").style.display = "none";
-      $("cancel").hidden = true;  // nothing left to stop; pressing it would hide the way back
-      $("now").textContent = r.status === "failed" ? `Stopped: ${r.error || "the report could not be prepared."}` : "Cancelled.";
-      if (r.tables.length) { const b = document.createElement("button"); b.className = "secondary"; b.textContent = "Review last draft"; b.onclick = () => renderReview(r); $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(b); }
-      const log = document.createElement("a"); log.href = `/api/runs/${state.runId}/activity-report`; log.textContent = "AI activity report";
-      $("now").appendChild(document.createTextNode(" ")); $("now").appendChild(log);
-      const back = document.createElement("button"); back.className = "link"; back.textContent = "Back to upload";
-      back.onclick = () => { show("upload"); $("start").disabled = false; };
-      $("now").appendChild(back);
-    }
+    else if (r.status === "failed" || r.status === "cancelled") showStopped(r);
+  }
+  // A stopped run: say why, and offer a new report (the files stay in the upload boxes).
+  function showStopped(r) {
+    clearInterval(state.timer);
+    $("bar").style.display = "none";
+    $("cancel").hidden = true;  // nothing left to stop
+    const now = $("now");
+    now.textContent = r.status === "failed" ? `Stopped: ${r.error || "the report could not be prepared."}` : "Cancelled. Nothing more is being sent to the AI.";
+    const actions = document.createElement("div");
+    actions.className = "stopped-actions";
+    const again = document.createElement("button"); again.id = "start-new"; again.className = "primary"; again.textContent = "Start a new report";
+    again.onclick = startNewReport;
+    actions.appendChild(again);
+    if (r.tables && r.tables.length) { const b = document.createElement("button"); b.className = "secondary"; b.textContent = "Review last draft"; b.onclick = () => renderReview(r); actions.appendChild(b); }
+    const log = document.createElement("a"); log.href = `/api/runs/${r.id || state.runId}/activity-report`; log.textContent = "AI activity report";
+    actions.appendChild(log);
+    now.appendChild(actions);
+    again.focus({ preventScroll: true });
+  }
+  // Back to the first step with the same files and period, ready to change anything and prepare again.
+  function startNewReport() {
+    clearInterval(state.timer);
+    state.runId = null; state.last = null;
+    history.replaceState(null, "", location.pathname);
+    show("upload");
+    $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
+    msg("upload-msg", "");
+    $("upload").scrollIntoView({ behavior: "smooth", block: "start" });
   }
   $("cancel").onclick = async () => {
     if (!state.runId) return;
-    $("now").textContent = "Stopping…";
-    await api(`/api/runs/${state.runId}/cancel`, { method: "POST" });
+    const id = state.stopped = state.runId;
+    clearInterval(state.timer);  // the screen changes at once; the app stops in the background
+    const last = state.lastPoll && state.lastPoll.id === id ? state.lastPoll : { id, tables: [] };
+    showStopped({ ...last, id, status: "cancelled" });
+    try { await api(`/api/runs/${id}/cancel`, { method: "POST" }); } catch {}
   };
 
   // ------------------------------------------------------------ review
@@ -524,6 +565,7 @@
     } catch (err) { msg("review-msg", err.message, "err"); }
   }
   function startPollingCorrection() {
+    state.stopped = null;
     $("events").innerHTML = ""; $("bar").style.display = ""; $("now").textContent = "Applying your correction…"; $("cancel").hidden = false;
     show("prepare");
     clearInterval(state.timer);
@@ -547,7 +589,7 @@
       msg("delete-all-msg", `Deleted ${r.deleted} saved run(s).`, "ok");
     } catch (err) { msg("delete-all-msg", err.message, "err"); }
   };
-  $("new-report").onclick = () => { history.replaceState(null, "", location.pathname); show("upload"); $("start").disabled = !(state.reportFiles.length && state.dataFiles.length); };
+  $("new-report").onclick = startNewReport;
 
   $("copy").onclick = async () => {
     const r = state.last; if (!r) return;
