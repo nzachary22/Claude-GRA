@@ -18,7 +18,7 @@ import json
 from types import SimpleNamespace
 from typing import Callable
 
-from .engine import Cancelled, TemporaryAIError
+from .engine import Cancelled, TemporaryAIError, run_cancellable
 
 MODEL = "gpt-6.1-sol"
 EFFORT = "xhigh"  # "very high"; at high it sometimes left a $0 figure blank in testing
@@ -196,23 +196,26 @@ def temporary_openai_problem(e: Exception) -> str | None:
     return None
 
 
-def check_api_key(key: str) -> str | None:
-    """Return None if the key works, else a plain-language problem."""
+def key_test(key: str, provider: str, kind: str) -> tuple[int, str]:
+    """One tiny request with a new key (see llm.check_api_key): the test message, or the free model lookup.
+
+    The test sets no thinking level and caps the reply at 16 words' worth, the smallest OpenAI allows,
+    so it costs a fraction of a cent; a reply cut short by that cap still proves the key works."""
     import openai
 
+    from .llm import KEY_TEST_PROMPT
+
+    client = openai.OpenAI(api_key=key, max_retries=1, timeout=60)
     try:
-        openai.OpenAI(api_key=key.strip(), max_retries=1).models.retrieve(MODEL)
-        return None
-    except openai.AuthenticationError:
-        return "That API key was not accepted."
-    except openai.PermissionDeniedError:
-        return "That API key does not have access to the model."
-    except openai.NotFoundError:
-        return f"That API key does not have access to the model {MODEL}."
-    except openai.APIConnectionError:
-        return "Could not reach the AI service. Check the internet connection."
+        if kind == "lookup":
+            client.models.retrieve(MODEL)
+        else:
+            client.responses.create(model=MODEL, input=KEY_TEST_PROMPT, max_output_tokens=16, store=False)
+        return 200, ""
     except openai.APIStatusError as e:
-        return f"The AI service returned an error ({e.status_code})."
+        return e.status_code, f"{e} {json.dumps(getattr(e, 'body', None), default=str)}"
+    except openai.APIConnectionError:
+        return 0, ""
 
 
 class OpenAIClient:
@@ -229,6 +232,9 @@ class OpenAIClient:
         self.effort = effort
 
     def respond(self, system: str, messages: list, tools: list, should_cancel: Callable[[], bool]):
+        return run_cancellable(lambda handle: self._stream(system, messages, tools, should_cancel, handle), should_cancel)
+
+    def _stream(self, system, messages, tools, should_cancel, handle):
         try:
             with self.client.responses.stream(
                 model=self.model,
@@ -240,6 +246,9 @@ class OpenAIClient:
                 store=False,
                 include=["reasoning.encrypted_content"],
             ) as stream:
+                handle["stream"] = stream
+                if should_cancel():  # cancelled while connecting: leaving the block closes the request
+                    raise Cancelled()
                 for _ in stream:
                     if should_cancel():
                         raise Cancelled()

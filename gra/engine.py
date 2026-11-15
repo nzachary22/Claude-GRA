@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -66,6 +67,41 @@ class Cancelled(Exception):
 class TemporaryAIError(RuntimeError):
     """A problem on the AI service's side that usually clears by itself (overloaded, server error,
     dropped connection). The reporting loop waits and sends the same request again."""
+
+
+def run_cancellable(call: Callable[[dict], object], should_cancel: Callable[[], bool], poll: float = 0.2):
+    """Run one blocking AI request so that Cancel ends the wait at once (desktop app).
+
+    The request runs in a helper thread; call(handle) may put the open stream in handle["stream"].
+    On Cancel the stream is closed, so the AI service stops working on it (and stops charging),
+    and an answer that still arrives is ignored. The browser version stops its worker instead."""
+    handle: dict = {}
+    if sys.platform == "emscripten":  # the browser version: no helper threads there; Cancel stops the worker
+        return call(handle)
+    result: dict = {}
+    done = threading.Event()
+
+    def work():
+        try:
+            result["value"] = call(handle)
+        except BaseException as e:  # handed back to the waiting thread below
+            result["error"] = e
+        finally:
+            done.set()
+
+    threading.Thread(target=work, daemon=True, name="ai-request").start()
+    while not done.wait(poll):
+        if should_cancel():
+            stream = handle.get("stream")
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            raise Cancelled()
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
 
 
 class ModelClient(Protocol):

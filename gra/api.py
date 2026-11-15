@@ -132,12 +132,12 @@ class Api:
         key = (key or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9_\-]{20,300}", key):
             raise ApiError(400, "That does not look like an API key.")
-        problem = check_api_key(key, provider)
+        problem, note = check_api_key(key, provider)
         if problem:
             raise ApiError(400, problem)
         save_api_key(key, provider)
         set_provider(provider)  # a newly saved key means the user wants to use that service
-        return {"ok": True}
+        return {"ok": True, "note": note}
 
     def forget_key(self, provider: str) -> dict:
         """Remove a saved key from this computer (or, in the browser version, from this browser)."""
@@ -246,6 +246,8 @@ class Api:
         run.cancel_requested = True
         if run.session:
             run.session.cancel()
+        elif run.status == "importing":
+            _stopped(run)  # shown as stopped at once; the import in progress is discarded
         return {"ok": True}
 
     def correct(self, run_id: str, text: str) -> dict:
@@ -453,8 +455,7 @@ def _prepare(run: Run, factory) -> bool:
         for n in run.report_names:
             blocks.extend(to_blocks(run.folder / "report" / n))
         if run.cancel_requested:
-            run.status = "cancelled"
-            _event(run, "cancelled", "Stopped at your request")
+            _stopped(run)
             return False
         gate = QueryGate(db, catalog)
         _check_reports(run, gate)
@@ -465,13 +466,24 @@ def _prepare(run: Run, factory) -> bool:
         run.session = ReportSession(gate, run.schema_text, blocks, run.period, model,
                                     activity_path=run.folder / "activity.jsonl", layout=layout,
                                     saved_choices=run.saved_choices)
-        run.status = "running"
         if run.cancel_requested:
-            run.session.cancel()
+            run.session = None
+            _stopped(run)
+            return False
+        run.status = "running"
         return True
     except Exception as e:
-        _failed(run, e)
+        if run.cancel_requested:
+            _stopped(run)
+        else:
+            _failed(run, e)
         return False
+
+
+def _stopped(run: Run):
+    if run.status != "cancelled":
+        run.status = "cancelled"
+        _event(run, "cancelled", "Stopped at your request")
 
 
 def _run_session(run: Run):

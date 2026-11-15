@@ -16,7 +16,7 @@ import os
 import sys
 from typing import Callable
 
-from .engine import Cancelled, TemporaryAIError
+from .engine import Cancelled, TemporaryAIError, run_cancellable
 from .paths import app_data_dir
 
 # The one model each service uses, chosen from live tests on the sample organizations (2026-11-05).
@@ -191,29 +191,77 @@ def delete_api_key(provider: str) -> None:
         pass
 
 
-def check_api_key(key: str, provider: str = DEFAULT_PROVIDER) -> str | None:
-    """Return None if the key works, else a plain-language problem."""
+# The key check sends one tiny message to the model reports use (about a dozen words in, a word or two out:
+# well under one cent), because a free lookup can't tell whether the account has credit or may use the model.
+KEY_TEST_PROMPT = "Reply with the word OK."
+CREDIT_HELP = {"anthropic": "Add credit at console.anthropic.com under Plans & Billing.",
+               "openai": "Add credit at platform.openai.com under Settings > Billing."}
+
+
+def check_api_key(key: str, provider: str = DEFAULT_PROVIDER) -> tuple[str | None, str | None]:
+    """Try a new key with one tiny test message. Returns (problem, note).
+
+    A problem means the key must not be saved. A note is shown with a key that is saved, for
+    example when the service was too busy to answer the test."""
+    provider = _check_provider(provider)
+    key = key.strip()
     if in_browser():
-        from .llm_web import check_api_key as check_in_browser
+        from .llm_web import key_test as send
+    elif provider == "openai":
+        from .llm_openai import key_test as send
+    else:
+        send = _anthropic_key_test
+    status, detail = send(key, provider, "message")
+    if status == 400 and not _out_of_credit(detail):
+        # The test message itself was refused (a change on the service's side). Fall back to the
+        # free lookup, so a key that works is never turned away because of the test.
+        status, detail = send(key, provider, "lookup")
+    return key_check_result(provider, status, detail)
 
-        return check_in_browser(key, provider)
-    if _check_provider(provider) == "openai":
-        from .llm_openai import check_api_key as check_openai
 
-        return check_openai(key)
+def _out_of_credit(detail: str) -> bool:
+    d = detail.lower()
+    return any(t in d for t in ("credit balance", "insufficient_quota", "exceeded your current quota", "billing"))
+
+
+def key_check_result(provider: str, status: int, detail: str) -> tuple[str | None, str | None]:
+    """The plain-language result of a key check from the service's reply (status 0: no connection)."""
+    label = PROVIDERS[provider]["label"]
+    if status == 200:
+        return None, None
+    if status == 0:
+        return "Could not reach the AI service. Check the internet connection and try again.", None
+    if status == 401:
+        return "That API key was not accepted. Check that you copied the whole key.", None
+    if _out_of_credit(detail):
+        return f"The key works, but your {label} account has no API credit left. {CREDIT_HELP[provider]}", None
+    if status in (403, 404):
+        if provider == "openai":
+            return ("This key cannot use the model reports need yet. OpenAI may ask you to verify your "
+                    "organization first, under Settings on platform.openai.com."), None
+        return ("This key does not have permission to use the model reports need. Check the key's "
+                "workspace at console.anthropic.com."), None
+    if temporary_problem(status, detail):
+        return None, (f"The key was saved, but {label} was too busy to fully check it just now. "
+                      "If a report can't start, check the key again later.")
+    return f"The AI service returned an error ({status}) while checking the key.", None
+
+
+def _anthropic_key_test(key: str, provider: str, kind: str) -> tuple[int, str]:
     import anthropic
 
+    client = anthropic.Anthropic(api_key=key, max_retries=1, timeout=60)
     try:
-        anthropic.Anthropic(api_key=key.strip(), max_retries=1).models.retrieve(MODEL)
-        return None
-    except anthropic.AuthenticationError:
-        return "That API key was not accepted."
-    except anthropic.PermissionDeniedError:
-        return "That API key does not have access to the model."
-    except anthropic.APIConnectionError:
-        return "Could not reach the AI service. Check the internet connection."
+        if kind == "lookup":
+            client.models.retrieve(MODEL)
+        else:
+            client.messages.create(model=MODEL, max_tokens=4,
+                                   messages=[{"role": "user", "content": KEY_TEST_PROMPT}])
+        return 200, ""
     except anthropic.APIStatusError as e:
-        return f"The AI service returned an error ({e.status_code})."
+        return e.status_code, f"{e} {json.dumps(getattr(e, 'body', None), default=str)}"
+    except anthropic.APIConnectionError:
+        return 0, ""
 
 
 def status_message(code: int, detail: str) -> str:
@@ -272,10 +320,16 @@ class ClaudeClient:
         return params
 
     def respond(self, system: str, messages: list, tools: list, should_cancel: Callable[[], bool]):
+        return run_cancellable(lambda handle: self._stream(system, messages, tools, should_cancel, handle), should_cancel)
+
+    def _stream(self, system, messages, tools, should_cancel, handle):
         import anthropic
 
         try:
             with self.client.beta.messages.stream(**self.request(system, messages, tools)) as stream:
+                handle["stream"] = stream
+                if should_cancel():  # cancelled while connecting: leaving the block closes the request
+                    raise Cancelled()
                 for _ in stream:
                     if should_cancel():
                         raise Cancelled()

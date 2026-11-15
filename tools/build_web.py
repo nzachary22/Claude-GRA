@@ -201,6 +201,8 @@ def app_zip() -> bytes:
 # so a later edit to the desktop page can't silently drop it.
 PAGE_CHANGES = [
     ('href="/static/icon.ico"', 'href="static/icon.ico"'),
+    # The version shown while the assistant starts, before the app can report its own.
+    (re.compile(r'<span class="ver">V\.[^<]*</span>'), '<span class="ver">V.{shown}</span>'),
     (re.compile(r'href="/static/style\.css\?v=\d+"'), 'href="static/style.css?v={v}"'),
     (re.compile(r'<script src="/static/app\.js\?v=\d+"></script>'),
      '<script src="static/bridge.js?v={v}"></script>\n  <script src="static/app.js?v={v}"></script>'),
@@ -215,7 +217,7 @@ PAGE_CHANGES = [
 def page(v: str) -> str:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     for old, new in PAGE_CHANGES:
-        new = new.replace("{v}", v)
+        new = new.replace("{v}", v).replace("{shown}", re.sub(r"\.0$", "", v))
         if isinstance(old, re.Pattern):
             html, n = old.subn(new, html)
         else:

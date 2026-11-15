@@ -129,7 +129,7 @@ def test_choosing_the_ai_service(tmp_path, monkeypatch):
     monkeypatch.setattr(keyring, "get_password", lambda s, u: store.get(u))
     monkeypatch.setattr(keyring, "set_password", lambda s, u, k: store.__setitem__(u, k))
     checked = []
-    monkeypatch.setattr(llm, "check_api_key", lambda key, provider="anthropic": checked.append(provider))
+    monkeypatch.setattr(llm, "check_api_key", lambda key, provider="anthropic": checked.append(provider) or (None, None))
     c = TestClient(create_app())
 
     s = c.get("/api/status").json()
