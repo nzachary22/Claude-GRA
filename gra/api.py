@@ -558,11 +558,22 @@ def _failed(run: Run, e: Exception):
 
 def _check_reports(run: Run, gate: QueryGate):
     """Refuse to send a report or requirements file that contains a stored client name, ID or note."""
-    for n in run.report_names:
-        text = scan_text(run.folder / "report" / n)
+    for kind, message in check_report_files([run.folder / "report" / n for n in run.report_names], gate):
+        _event(run, kind, message)
+
+
+def check_report_files(paths: list[Path], gate: QueryGate) -> list[tuple[str, str]]:
+    """Check reports or requirements for client names, IDs or notes stored in the data before they are sent.
+
+    Returns (kind, message) progress lines; raises ValueError when a full name, ID or email is found.
+    Shared by the app and the Claude app connector."""
+    out = []
+    for path in paths:
+        n = Path(path).name
+        text = scan_text(path)
         if text is None:
-            _event(run, "status", f"{n} could not be checked for client details (image or unreadable file); "
-                                  "it is sent as is")
+            out.append(("status", f"{n} could not be checked for client details (image or unreadable file); "
+                                  "it is sent as is"))
             continue
         found = gate.protected_matches(text, limit=50)
         # Full names, IDs and emails stop the run; a lone word (a surname a staff member may share) is flagged.
@@ -573,10 +584,11 @@ def _check_reports(run: Run, gate: QueryGate):
                              "Nothing was sent to the AI. Remove them from the report, or upload only "
                              "its tables or the grant requirements, and start again.")
         if found:
-            _event(run, "warning", f"{n} contains words that also appear in protected client fields "
-                                   f"({', '.join(found[:5])}). Check that the report names no clients.")
-    if run.report_names:
-        _event(run, "status", "Checked the report for client names and IDs from your data; none found")
+            out.append(("warning", f"{n} contains words that also appear in protected client fields "
+                                   f"({', '.join(found[:5])}). Check that the report names no clients."))
+    if paths:
+        out.append(("status", "Checked the report for client names and IDs from your data; none found"))
+    return out
 
 
 _KEPT_WHY = {"identifier": "ID or name", "sensitive": "personal; used only for groups such as age bands",

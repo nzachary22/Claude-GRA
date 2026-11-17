@@ -24,6 +24,8 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q
+        env:
+          GRA_CONNECTOR_BUNDLE: "1"  # also build the Claude app extension and run it with a bare Python
 
   mac-starter:
     name: Mac starter and Keychain
@@ -49,7 +51,7 @@ jobs:
             sleep 2
           done
           cat "$RUNNER_TEMP/first.log"
-          curl -sf http://127.0.0.1:8765/api/status | tee /dev/stderr | grep -q '"version":"2.1.0"'
+          curl -sf http://127.0.0.1:8765/api/status | tee /dev/stderr | grep -q '"version":"2.2.0"'
           grep -q "Setting up" "$RUNNER_TEMP/first.log"
           APP="$HOME/Applications/Grant Reporting Assistant.app"
           test -d "$APP"
