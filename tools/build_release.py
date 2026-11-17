@@ -1,4 +1,8 @@
-"""Build the downloadable release zip from the committed program files only.
+"""Build the desktop app's release zip from the committed program files only.
+
+The desktop app is retired: V.2.1.0 was its last release. This builder is kept for reference
+and for the tests that check the zip's contents; new releases ship the browser version
+(tools/build_web.py) and the Claude app extension (tools/build_connector.py).
 
     python tools/build_release.py
 
