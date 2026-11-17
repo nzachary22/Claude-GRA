@@ -147,6 +147,25 @@ def test_report_with_client_names_is_refused(tmp_path):
     assert clients[0][name_col] not in text.split("(")[0]
 
 
+def test_timestamps_follow_the_organizations_time_zone(tmp_path):
+    report = tmp_path / "report.txt"
+    report.write_text("Table 1. Outreach events by quarter (Pacific time)\n" + "x" * 300, encoding="utf-8")
+    data = tmp_path / "outreach_events.csv"
+    data.write_text("event_id,start_utc,attendees\n" + "".join(f"E{i},2027-07-01T05:{i:02d}:00Z,{i}\n" for i in range(30)),
+                    encoding="utf-8")
+    c = Connector(output_root=tmp_path / "out")
+    args = {"report_files": [str(report)], "data_files": [str(data)], "period_start": "2026-07-01",
+            "period_end": "2027-06-30", "time_zone": "America/Los_Angeles"}
+    text, err = c.call("start_report", args)
+    assert not err and "shown as local date and time in the America/Los_Angeles time zone" in text
+    assert "role=date" in text and "range 2027-06-30 22:00:00 to 2027-06-30 22:29:00" in text
+    text, err = c.call("run_query", {"sql": "SELECT COUNT(*) AS n FROM outreach_events WHERE start_utc < '2027-07-01'",
+                                     "purpose": "events in the fiscal year"})
+    assert not err and "30" in text
+    text, err = c.call("start_report", {**args, "time_zone": "Pacific"})
+    assert err and "Unknown time zone" in text
+
+
 def test_tools_need_a_started_report():
     c = Connector()
     text, err = c.call("run_query", {"sql": "SELECT 1", "purpose": "x"})

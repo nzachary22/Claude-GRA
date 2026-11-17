@@ -7,7 +7,7 @@ privacy role, which the query gate uses to decide what may leave the computer:
     sensitive   personal values usable in calculations but never shown raw (birth dates)
     free_text   narrative fields (notes); never queryable and never described to the AI
     category    low-cardinality codes whose value list may be shared
-    date        ISO dates
+    date        ISO dates (timestamps with a time zone become local date and time)
     measure     other numbers
     text        other text, queryable but its values are not listed
 
@@ -23,7 +23,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 CATEGORY_MAX_DISTINCT = 100
@@ -32,6 +32,9 @@ FREE_TEXT_MIN_AVG_LEN = 40
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$")
 _SLASH_DATE_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+# A point in time with its time zone, as most systems export timestamps: 2027-01-05T19:00:35Z,
+# 2027-01-05 19:00:35.123+00:00 or 2027-01-05T13:00:35-0600.
+_ZONED_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?\s?(Z|z|UTC|[+-]\d{2}:?\d{2})$")
 _MONEY_RE = re.compile(r"^-?\$\s?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?$")
 _INT_RE = re.compile(r"^-?(0|[1-9]\d*)$")
 _REAL_RE = re.compile(r"^-?(0|[1-9]\d*)\.\d+$")
@@ -213,11 +216,51 @@ def _clean(v):
     return v
 
 
-def _normalize(values: list) -> tuple[list, str]:
-    """Standardize whole columns of dollar text or slash dates so they can be calculated on."""
+def _zone(name: str | None):
+    """The time zone that timestamps are shown in: the named one, or this computer's own."""
+    if not name:
+        return None
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        raise ValueError(f"Unknown time zone {name!r}. Use a name such as America/Los_Angeles or America/New_York.")
+
+
+def _local_times(values: list, tz) -> tuple[list, str]:
+    """Turn timestamps that carry a time zone into local date and time (YYYY-MM-DD HH:MM:SS),
+    so the date part is the calendar day where the organization works and the column can be
+    used as a date (quarters, deadlines). A 9 p.m. Pacific entry stored as 05:00Z the next day
+    lands on the right day."""
+    def parse(v):
+        v = v.strip()
+        for utc in ("Z", "z", "UTC"):
+            if v.endswith(utc):
+                v = v[: -len(utc)].rstrip() + "+00:00"
+        if re.search(r"[+-]\d{4}$", v):
+            v = f"{v[:-2]}:{v[-2:]}"
+        stamp = datetime.fromisoformat(v.replace(" +", "+").replace(" -", "-"))
+        return stamp.astimezone(tz) if tz else stamp.astimezone()
+
+    try:
+        local = [None if v is None else parse(v) for v in values]
+    except ValueError:
+        return values, ""
+    offsets = sorted({d.strftime("%z") for d in local if d is not None})
+    shown = "/".join(f"UTC{o[:3]}:{o[3:]}" for o in offsets)
+    where = f"the {tz.key} time zone" if tz else "this computer's time zone"
+    out = [None if d is None else d.strftime("%Y-%m-%d %H:%M:%S") for d in local]
+    return out, (f"converted from timestamps with a time zone to local date and time in {where} ({shown}), "
+                 f"YYYY-MM-DD HH:MM:SS; the date part is the local calendar day")
+
+
+def _normalize(values: list, tz=None) -> tuple[list, str]:
+    """Standardize whole columns of dollar text, slash dates or zoned timestamps so they can be calculated on."""
     present = [v for v in values if isinstance(v, str)]
     if not present or len(present) != sum(v is not None for v in values):
         return values, ""
+    if all(_ZONED_RE.match(v.strip()) for v in present):
+        return _local_times(values, tz)
     if all(_MONEY_RE.match(v) for v in present):
         convert = lambda v: float(v.replace("$", "").replace(",", "").replace(" ", ""))
         return [None if v is None else convert(v) for v in values], "converted from dollar text such as $1,250.00"
@@ -320,8 +363,12 @@ def _is_reference(table: TableInfo) -> bool:
 
 # ---------------------------------------------------------------- import
 
-def import_files(db_path: Path, files: list[Path]) -> Catalog:
-    """(Re)build the database at db_path from the given files and return its catalog."""
+def import_files(db_path: Path, files: list[Path], time_zone: str | None = None) -> Catalog:
+    """(Re)build the database at db_path from the given files and return its catalog.
+
+    time_zone (e.g. America/Los_Angeles) is where timestamps that carry a time zone are shown;
+    by default, this computer's own."""
+    tz = _zone(time_zone)
     db_path = Path(db_path)
     if db_path.exists():
         db_path.unlink()
@@ -334,7 +381,7 @@ def import_files(db_path: Path, files: list[Path]) -> Catalog:
             if reader is None:
                 raise ValueError(f"Unsupported data file type: {Path(path).name}")
             for raw_name, headers, rows in reader(Path(path)):
-                catalog.tables.append(_load_table(conn, raw_name, headers, rows, Path(path).name, taken))
+                catalog.tables.append(_load_table(conn, raw_name, headers, rows, Path(path).name, taken, tz))
         conn.execute("CREATE TABLE _gra_catalog (json TEXT)")
         conn.execute("INSERT INTO _gra_catalog VALUES (?)", (catalog.to_json(),))
         conn.commit()
@@ -343,7 +390,7 @@ def import_files(db_path: Path, files: list[Path]) -> Catalog:
     return catalog
 
 
-def _load_table(conn, raw_name, headers, rows, source_file, taken) -> TableInfo:
+def _load_table(conn, raw_name, headers, rows, source_file, taken, tz=None) -> TableInfo:
     tname = _unique(snake(raw_name), taken)
     col_taken: set[str] = set()
     cols = [_unique(snake(h) if str(h).strip() else f"col_{i + 1}", col_taken) for i, h in enumerate(headers)]
@@ -353,7 +400,7 @@ def _load_table(conn, raw_name, headers, rows, source_file, taken) -> TableInfo:
     info = TableInfo(name=tname, source_file=source_file, rows=len(data))
     types = []
     for i, cname in enumerate(cols):
-        values, note = _normalize([r[i] for r in data])
+        values, note = _normalize([r[i] for r in data], tz)
         for r, v in zip(data, values):
             r[i] = v
         sql_type = _infer(values)
