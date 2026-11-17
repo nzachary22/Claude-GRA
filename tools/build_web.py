@@ -208,6 +208,8 @@ PAGE_CHANGES = [
      '<script src="static/bridge.js?v={v}"></script>\n  <script src="static/app.js?v={v}"></script>'),
     ("it is stored in this computer's secure key store (Windows Credential Manager or the Mac Keychain).",
      "it is saved in this browser on this computer, and <b>Forget key</b> removes it."),
+    ("They stay on this computer and are not sent anywhere.",
+     "They stay in this browser on this computer and are not sent anywhere."),
     ('<main>', '<div id="booting" class="card booting" role="status"><strong>Starting the assistant…</strong> '
                '<span class="muted">The first visit downloads about 15 MB; after that it opens in a few seconds. '
                'Nothing you add later is uploaded to this website.</span></div>\n\n  <main hidden>'),

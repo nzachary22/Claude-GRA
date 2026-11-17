@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import __version__
+from . import history
 from .activity import read_events, render_text, sent_text
 from .activity_report import to_report_docx
 from .data_quality import has_gaps, to_quality_docx
@@ -405,6 +406,47 @@ class Api:
         _write_choices([c for c in _read_choices() if c["id"] != choice_id])
         return {"ok": True}
 
+    # ------------------------------------------------------------ past reports
+
+    def list_history(self) -> list[dict]:
+        return history.list_all()
+
+    def get_history(self, entry_id: str) -> dict:
+        try:
+            e = history.get(entry_id)
+        except (KeyError, ValueError, OSError):
+            raise ApiError(404, "That past report is no longer saved.")
+        run = self.runs.get(e.get("run") or "")
+        # The same result still open in this session: it can be reopened with everything working.
+        live = bool(run and run.session and run.status == "done" and not run.demo
+                    and len(run.session.corrections) == e.get("corrections"))
+        has_activity = (app_data_dir() / "runs" / str(e.get("run")) / "activity.jsonl").exists()
+        return e | {"live": live, "has_activity": has_activity}
+
+    def delete_history(self, entry_id: str) -> dict:
+        try:
+            history.delete(entry_id)
+        except KeyError:
+            raise ApiError(404, "That past report is no longer saved.")
+        return {"ok": True}
+
+    def delete_all_history(self) -> dict:
+        return {"ok": True, "deleted": history.delete_all()}
+
+    def history_export(self, entry_id: str, fmt: str) -> FileOut:
+        e = self.get_history(entry_id)
+        tables, notes = history.tables_of(e), history.notes_of(e)
+        if not tables:
+            raise ApiError(409, "This past report has no tables.")
+        start, end = (e.get("period") or ["", ""])[:2]
+        args = (tables, notes, "Grant report tables", f"{start} to {end}", e.get("report") or {}, e.get("orientation") or None)
+        stamp = str(end).replace("-", "")
+        if fmt == "docx":
+            return FileOut(to_docx(*args), DOCX, f"grant-report-tables-{stamp}.docx")
+        if fmt == "xlsx":
+            return FileOut(to_xlsx(*args), XLSX, f"grant-report-tables-{stamp}.xlsx")
+        raise ApiError(404, "Unknown format.")
+
     # ------------------------------------------------------------ the fictional sample
 
     def sample(self) -> dict:
@@ -492,6 +534,19 @@ def _run_session(run: Run):
         run.status = run.session.status
     except Exception as e:
         _failed(run, e)
+    _keep_result(run)
+
+
+def _keep_result(run: Run):
+    """Save a finished result to Past reports. Never the uploads, the database or the key."""
+    s = run.session
+    if run.demo or s is None or run.status != "done" or not s.tables:
+        return
+    try:
+        history.save(run.id, s.snapshot(0), report_files=run.report_names, data_files=run.data_names,
+                     data_gaps=has_gaps(s.tables, list(s.notes.values())), orientation=s.page_orientation or "")
+    except Exception:
+        log.exception("Could not save run %s to Past reports", run.id)
 
 
 def _failed(run: Run, e: Exception):
@@ -574,6 +629,7 @@ def _correct(run: Run, text: str):
         log.exception("Correction for run %s failed", run.id)
         run.status = "failed"
         run.error = f"Could not apply the correction ({type(e).__name__})."
+    _keep_result(run)
 
 
 def _merge_status(run: Run, session_status: str) -> str:

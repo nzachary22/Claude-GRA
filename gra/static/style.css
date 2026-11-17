@@ -11,6 +11,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }  /* also for buttons, whose display is set below */
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
 .top { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--card); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .brand { font-weight: 600; font-size: 17px; }
@@ -169,3 +170,15 @@ td.explainable:hover, td.explainable:focus { outline: 2px solid var(--accent); o
 @media (min-width: 1180px) { .booting { margin: 24px auto; } }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #222; color: #fff;
   padding: 10px 16px; border-radius: 6px; max-width: min(90vw, 560px); z-index: 50; }
+
+/* Past reports */
+.top-links { display: flex; gap: 4px; align-items: center; }
+.past-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.past-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.past-list li:first-child { border-top: 0; }
+.past-list .what { min-width: 0; flex: 1 1 320px; }
+.past-list .what b { display: block; overflow-wrap: anywhere; }
+.past-list .past-actions { display: flex; gap: 12px; align-items: center; }
+.past-list .past-actions .link { padding: 0; }
+.past-list li.current { background: var(--head); margin: 0 -10px; padding: 10px; border-radius: 6px; }
+#review.past .change, #review.past .opts, #review.past .recalc, #review.past .considerations .lead { display: none; }

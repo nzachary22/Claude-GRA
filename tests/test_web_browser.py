@@ -391,3 +391,47 @@ def test_added_files_open_for_checking(page, tmp_path):
     assert page.ai_hits == [] and not [r for r in SiteHandler.requests if r.startswith("POST")]
     assert page.eval_on_selector_all("#report-list .file-open", "b => b.length") == 2
     assert page.errors == []
+
+
+def test_past_reports_reopen_after_a_reload(page, servers, tmp_path):
+    """V.2.1: a finished report is kept in this browser and opens again, with its downloads, after a reload."""
+    from tests import fake_ai
+
+    assert "Key works" in save_key(page, fake_ai.GOOD_KEY)
+    page.wait_for_timeout(1500)
+    prepare_sample_report(page)
+    want = figures(download(page, "#dl-excel"))
+    tables = page.eval_on_selector_all("#tables table", "t => t.length")
+
+    # In the same session, the result opens with everything working, Recalculate too.
+    page.click("#history-btn")
+    page.wait_for_selector("#past-list [data-open]")
+    assert page.eval_on_selector_all("#past-list [data-open]", "b => b.length") == 1
+    page.click("#past-list [data-open]")
+    page.wait_for_selector("#review:not([hidden])")
+    assert page.is_visible("#correct-card") and not page.is_visible("#past-banner")
+
+    # After a reload nothing is in memory: the same report opens from this browser's storage, as it was.
+    page.reload()
+    page.wait_for_selector("#booting", state="detached", timeout=120000)
+    page.wait_for_selector("#past-banner:not([hidden])", timeout=30000)
+    page.evaluate("() => { document.getElementById('setup').hidden = true; }")
+    page.click("#history-btn")
+    page.wait_for_selector("#past-list [data-open]")
+    assert "Juniper Ridge" in page.text_content("#past-list")
+    page.click("#past-list [data-open]")
+    page.wait_for_selector("#past-banner:not([hidden])")
+    assert "past report" in page.text_content("#past-banner")
+    assert page.eval_on_selector_all("#tables table", "t => t.length") == tables
+    assert not page.is_visible("#correct-card") and not page.is_visible("#recalc-all")
+    assert figures(download(page, "#dl-excel")) == want
+    assert len(download(page, "#dl-word")) > 5000
+    assert "#past=" in page.url
+
+    # Deleting the report on screen goes back to the first step.
+    page.click("#history-btn")
+    page.once("dialog", lambda d: d.accept())
+    page.click("#past-list [data-del]")
+    page.wait_for_function("() => /No past reports yet/.test(document.getElementById('past-list').textContent)")
+    assert page.is_visible("#upload") and not page.is_visible("#past-delete-all")
+    assert page.errors == []
