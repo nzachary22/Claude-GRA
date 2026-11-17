@@ -37,7 +37,7 @@ Your chats with GRA contain report tables (totals, never client records). If you
 
 ## Prepare your own report
 
-1. Put your past report (or the grant requirements) and your data files (CSV, Excel or JSON exports) in one folder.
+1. Put your past report (or the grant requirements: PDF, Word, Excel or text) and your data files (CSV, Excel or JSON exports) in one folder of their own. Claude sees the names of the files in that folder, so keep other files, such as documents named after clients, elsewhere.
 2. Copy the folder's location:
    - **Windows:** open the folder in File Explorer, click the address bar at the top, and press **Ctrl+C**.
    - **Mac:** in Finder, right-click the folder, hold the **Option** key, and click **Copy "..." as Pathname**.
@@ -53,7 +53,8 @@ To check first what GRA keeps private and what it shares, ask: **Use Grant Repor
 ## Keeping client data private
 
 - **Never attach your data files to the chat** or paste records into it. Give Claude only the folder location; GRA reads the files on your computer and shows Claude only totals.
-- Don't ask Claude to open the data files with other tools (such as a file-reading extension). GRA's rules tell Claude not to.
+- GRA has no tool that shows Claude a data file's contents; only totals from its privacy-checked counts come back. Other extensions are different: if you also turn on a file-reading extension (such as Filesystem) or computer use for that folder, Claude could open the files that way. GRA's rules tell Claude not to, but to be sure, keep such extensions off while you work with client data (Settings > Extensions).
+- You can see everything GRA gave Claude: click any GRA step in the chat to see its result, and open the **AI activity report** saved with the tables.
 - Attaching your past report itself is fine if it is a scan that GRA can't read; it holds no client records.
 - GRA checks the report for client names and IDs from your data before Claude sees it, and stops if it finds one.
 

@@ -34,7 +34,8 @@ from .schema import describe
 from .tables import GAP_MARK, Table
 
 PROVIDER = "claude-app"
-DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md", ".csv"}
+DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md"}  # CSV files are always treated as data
+RECORD_ROWS = 200  # a report sheet this long with ID, personal or note columns looks like client records
 MAX_TEXT_CHARS = 400_000
 KEEP_RUNS = 5
 MAX_LISTED = 300
@@ -65,8 +66,8 @@ def _tool(name: str, description: str, properties: dict, required: list[str] | N
 _PATHS = {"type": "array", "items": {"type": "string"}}
 CONNECTOR_TOOLS = [
     _tool("find_files",
-          "List the files in a folder on this computer (names, types and sizes only; nothing is opened), to find "
-          "the user's past report and data files. Use the folder path the user gives.",
+          "List the files in a folder and its subfolders one level down (names, types and sizes only; nothing is "
+          "opened), to find the user's past report and data files. Use the folder path the user gives.",
           {"folder": {"type": "string", "description": "Full path of the folder, e.g. C:\\Users\\me\\Documents\\Grant data"}},
           ["folder"]),
     _tool("preview_data",
@@ -153,7 +154,7 @@ class Connector:
         found = []
         for p in sorted(root.rglob("*")):
             rel = p.relative_to(root)
-            if len(rel.parts) > 3 or any(part.startswith(".") for part in rel.parts) or not p.is_file():
+            if len(rel.parts) > 2 or any(part.startswith(".") for part in rel.parts) or not p.is_file():
                 continue
             suffix = p.suffix.lower()
             kind = ("data" if suffix in READERS else "") + ("/" if suffix in READERS and suffix in DOC_TYPES else "") \
@@ -239,6 +240,8 @@ class Connector:
             raise UserError(f"Could not read the data files: {e}") from None
         gate = QueryGate(db, catalog)
         try:
+            for p in reports:
+                _refuse_records(p, folder)
             checks = check_report_files(reports, gate)
         except ValueError as e:
             shutil.rmtree(folder, ignore_errors=True)
@@ -404,6 +407,27 @@ class UserError(Exception):
 WORD_MISSING = ("Word support is still being set up on this computer (a one-time download), or it could not be "
                 "installed. Wait a minute and try again. If it keeps failing, check the internet connection, then "
                 "restart the Claude app.")
+
+
+def _refuse_records(path: Path, work: Path):
+    """Refuse a spreadsheet given as the report that looks like client records rather than report tables.
+
+    The report is shown to Claude in full, so this stops a data export passed as the report, even one
+    whose IDs are not in the imported data (the check that follows only knows the imported data)."""
+    if path.suffix.lower() not in (".xlsx", ".xlsm"):
+        return
+    try:
+        catalog = import_files(work / "report-check.db", [path])
+    except Exception:
+        return  # not a plain table layout: a formatted report
+    finally:
+        (work / "report-check.db").unlink(missing_ok=True)
+    for t in catalog.tables:
+        roles = {c.role for c in t.columns}
+        if not t.reference and ("sensitive" in roles or (t.rows >= RECORD_ROWS and roles & {"identifier", "free_text"})):
+            raise ValueError(f"{path.name} looks like client records (sheet with {t.rows:,} rows and ID, personal or "
+                             "note columns), not a report. Nothing from it was shown to Claude. Give it as a data file, "
+                             "or give the past report or grant requirements as the report.")
 
 
 def report_text(path: Path) -> str | None:

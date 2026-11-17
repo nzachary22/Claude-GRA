@@ -107,7 +107,7 @@ def test_records_never_returned(tmp_path):
 def test_preview_and_find_files(tmp_path):
     c = Connector(output_root=tmp_path / "out")
     text, err = c.call("find_files", {"folder": str(SAMPLE)})
-    assert not err and "clients.csv (data/report" in text and "Juniper Ridge 2025 annual report.pdf (report" in text
+    assert not err and "clients.csv (data," in text and "Juniper Ridge 2025 annual report.pdf (report" in text
     text, err = c.call("preview_data", {"data_files": [str(SAMPLE / n) for n in SAMPLE_DATA]})
     assert not err and "Kept on this computer" in text
     assert not list((Path(os.environ["GRA_DATA_DIR"]) / "connector-runs").glob("preview-*"))  # preview leaves nothing
@@ -249,3 +249,38 @@ def test_too_old_python_explains_itself():
     assert json.loads(out[0])["result"]["tools"][0]["name"] == "setup_problem"
     reply = json.loads(out[1])["result"]
     assert reply["isError"] and "needs Python 3.11 or newer" in reply["content"][0]["text"]
+
+
+def _xlsx(path, header, rows):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(header)
+    for r in rows:
+        ws.append(r)
+    wb.save(path)
+    return path
+
+
+def test_client_records_given_as_the_report_are_refused(tmp_path):
+    """A data export passed as the report is refused even when its IDs are not in the imported data."""
+    records = _xlsx(tmp_path / "other export.xlsx", ["Client ID", "Client Name", "County", "Notes"],
+                    [[f"ZZ-{i:05d}", f"Person {i} Example", "North" if i % 2 else "South", f"Called on day {i} about rent"]
+                     for i in range(250)])
+    birthdays = _xlsx(tmp_path / "small.xlsx", ["Client", "Date of Birth"], [[f"P{i}", f"1980-01-{i + 1:02d}"] for i in range(9)])
+    report = _xlsx(tmp_path / "past report.xlsx", ["Legal problem", "Closed cases", "Percent"],
+                   [[f"{i:02d}.01 Problem area {i}", i * 3, i / 2] for i in range(1, 40)])
+    data = [str(SAMPLE / n) for n in SAMPLE_DATA]
+    c = Connector(output_root=tmp_path / "out")
+    for bad in (records, birthdays):
+        text, err = c.call("start_report", {"report_files": [str(bad)], "data_files": data,
+                                            "period_start": "2026-01-01", "period_end": "2026-12-31"})
+        assert err and "looks like client records" in text and "Example" not in text, text
+    (tmp_path / "x.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    text, err = c.call("start_report", {"report_files": [str(tmp_path / "x.csv")], "data_files": data,
+                                        "period_start": "2026-01-01", "period_end": "2026-12-31"})
+    assert err and "not a report file" in text
+    text, err = c.call("start_report", {"report_files": [str(report)], "data_files": data,
+                                        "period_start": "2026-01-01", "period_end": "2026-12-31"})
+    assert not err and "Problem area 7" in text
