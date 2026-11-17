@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grant-reporting-assistant"
-version = "2.2.0"
+version = "2.2.1"
 description = "Local grant-reporting assistant: protected SQLite data, AI-built aggregate report tables."
 requires-python = ">=3.11"
 license = "MIT"
@@ -19,6 +19,7 @@ dependencies = [
     "anthropic>=2.3",
     "openai>=3.40",
     "keyring>=25",
+    "tzdata>=2024.1; sys_platform == 'win32'",  # time zones by name (Windows has no built-in list)
 ]
 
 [project.optional-dependencies]

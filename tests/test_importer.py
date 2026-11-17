@@ -82,6 +82,41 @@ def test_us_and_day_first_dates_become_iso(tmp_path):
     assert catalog.table("x").column("stamp").role == "date"
 
 
+def test_timestamps_with_a_time_zone_become_local_dates(tmp_path):
+    """UTC exports (2027-07-01T05:00:00Z) are dates, shown on the organization's local calendar day."""
+    from tests.conftest import write_csv
+    stamps = ["2027-07-01T05:00:00Z", "2027-04-01T03:00:00.250Z", "2027-01-05T13:00:35-0600", "2026-12-01 18:00:00+00:00"]
+    f = write_csv(tmp_path / "events.csv", ["event_id", "start_utc", "attendees"],
+                  [[f"E{i}", s, 10 + i] for i, s in enumerate(stamps)] + [["E9", "", 5]])
+    catalog = import_files(tmp_path / "x.db", [f], time_zone="America/Los_Angeles")
+    col = catalog.table("events").column("start_utc")
+    assert col.role == "date" and "America/Los_Angeles" in col.note and "UTC-07:00/UTC-08:00" in col.note
+    rows = sqlite3.connect(tmp_path / "x.db").execute("SELECT start_utc FROM events ORDER BY event_id").fetchall()
+    # 10 p.m. Pacific on June 30 and 8 p.m. on March 31 stay in their own quarter, whatever UTC says.
+    assert rows == [("2027-06-30 22:00:00",), ("2027-03-31 20:00:00",), ("2027-01-05 11:00:35",),
+                    ("2026-12-01 10:00:00",), (None,)]
+    # Without a named zone, this computer's own is used.
+    catalog = import_files(tmp_path / "y.db", [f])
+    assert catalog.table("events").column("start_utc").role == "date"
+    assert "this computer's time zone" in catalog.table("events").column("start_utc").note
+
+
+def test_a_column_mixing_timestamps_and_text_is_left_alone(tmp_path):
+    from tests.conftest import write_csv
+    f = write_csv(tmp_path / "x.csv", ["seen"], [["2027-07-01T05:00:00Z"], ["unknown"]])
+    import_files(tmp_path / "x.db", [f])
+    assert sqlite3.connect(tmp_path / "x.db").execute("SELECT seen FROM x ORDER BY 1").fetchall() == [
+        ("2027-07-01T05:00:00Z",), ("unknown",)]
+
+
+def test_an_unknown_time_zone_is_reported(tmp_path):
+    import pytest
+    from tests.conftest import write_csv
+    f = write_csv(tmp_path / "x.csv", ["d"], [["2027-07-01T05:00:00Z"]])
+    with pytest.raises(ValueError, match="Unknown time zone"):
+        import_files(tmp_path / "x.db", [f], time_zone="Pacific Standard")
+
+
 def test_impossible_dates_are_left_alone(tmp_path):
     from tests.conftest import write_csv
     f = write_csv(tmp_path / "x.csv", ["d"], [["02/30/2026"], ["03/01/2026"]])

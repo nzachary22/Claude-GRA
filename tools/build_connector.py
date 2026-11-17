@@ -26,7 +26,7 @@ from build_release import FIXED_TIME, ROOT, program_files, version  # noqa: E402
 
 # Pure-Python libraries bundled in server/lib, pinned. (lxml is installed on first start; see connector/server/main.py.)
 LIBRARIES = ["sqlglot==30.32.0", "openpyxl==3.1.5", "et_xmlfile==2.0.0", "pypdf==7.1.0", "python-docx==1.2.0",
-             "typing_extensions==4.16.0"]
+             "typing_extensions==4.16.0", "tzdata==2026.6"]  # tzdata: time zones on Windows
 CONNECTOR_FILES = ["manifest.json", "icon.png", "server/main.py", "server/start.sh"]
 LEAVE_OUT = ("gra/static/",)  # the app's web page; the connector has none
 

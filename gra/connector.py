@@ -85,7 +85,13 @@ CONNECTOR_TOOLS = [
                                                      "report to this chat instead."},
            "data_files": {**_PATHS, "description": "Full paths of the data files (CSV, Excel or JSON)."},
            "period_start": {"type": "string", "description": "First day of the reporting period, YYYY-MM-DD."},
-           "period_end": {"type": "string", "description": "Last day of the reporting period, YYYY-MM-DD."}},
+           "period_end": {"type": "string", "description": "Last day of the reporting period, YYYY-MM-DD."},
+           "time_zone": {"type": "string", "description": "Optional. The time zone the organization reports in, as a "
+                                                          "name such as America/Los_Angeles, when the report, the "
+                                                          "requirements or the user name one. Timestamps in the data "
+                                                          "that carry a time zone (such as 2027-01-05T19:00:35Z) are "
+                                                          "shown as local date and time there. Default: this "
+                                                          "computer's time zone."}},
           ["data_files", "period_start", "period_end"]),
     _tool("start_sample_report",
           "Start a report on GRA's built-in fictional sample (an invented legal aid society's 2025 report and made-up "
@@ -204,7 +210,7 @@ class Connector:
         return self._start([SAMPLE / SAMPLE_REPORT], [SAMPLE / n for n in SAMPLE_DATA], SAMPLE_PERIOD, sample=True)
 
     def start_report(self, data_files: list, period_start: str, period_end: str,
-                     report_files: list | None = None) -> tuple[str, bool]:
+                     report_files: list | None = None, time_zone: str | None = None) -> tuple[str, bool]:
         from datetime import date
 
         try:
@@ -218,9 +224,10 @@ class Connector:
         if overlap:
             raise UserError("A file was given as both a report and a data file: "
                             + ", ".join(p.name for p in overlap) + ". Give each file once.")
-        return self._start(reports, data, (str(period_start), str(period_end)))
+        return self._start(reports, data, (str(period_start), str(period_end)), time_zone=time_zone or None)
 
-    def _start(self, reports: list[Path], data: list[Path], period: tuple[str, str], sample: bool = False):
+    def _start(self, reports: list[Path], data: list[Path], period: tuple[str, str], sample: bool = False,
+               time_zone: str | None = None):
         from .api import check_report_files
         from .documents import layout_summary
 
@@ -234,7 +241,7 @@ class Connector:
         _prune()
         db = folder / "data.db"
         try:
-            catalog = import_files(db, data)
+            catalog = import_files(db, data, time_zone)
         except ValueError as e:
             shutil.rmtree(folder, ignore_errors=True)
             raise UserError(f"Could not read the data files: {e}") from None
@@ -278,6 +285,13 @@ class Connector:
                 f"{len(data)} file(s) into {len(catalog.tables)} tables on this computer; {protected} identifying or "
                 "free-text columns are protected and never shown."]
         head += [m for _, m in checks]
+        zoned = [f"{t.name}.{c.name}" for t in catalog.tables for c in t.columns if c.note.startswith("converted from timestamps")]
+        if zoned:
+            where = f"the {time_zone} time zone" if time_zone else "this computer's time zone"
+            head.append(f"{len(zoned)} timestamp column(s) that carry a time zone (such as {zoned[0]}) are shown as local "
+                        f"date and time in {where}, so their date part is the local calendar day. If the report, the "
+                        "requirements or the user say the organization reports in a different time zone, call "
+                        "start_report again with time_zone set to it (e.g. America/Los_Angeles).")
         if not reports:
             head.append("No report file was given: use the report or requirements the user attached to this chat.")
         text = "\n".join(head) + "\n\n=== HOW TO WORK ===\n\n" + rules + "\n\n=== THE REPORT AND THE DATA ===\n\n" \
