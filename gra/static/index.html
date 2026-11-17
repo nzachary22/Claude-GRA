@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grant Reporting Assistant</title>
   <link rel="icon" href="/static/icon.ico">
-  <link rel="stylesheet" href="/static/style.css?v=20">
+  <link rel="stylesheet" href="/static/style.css?v=21">
 </head>
 <body>
   <header class="top">
-    <div class="brand">Grant Reporting Assistant <span class="ver">V.2.0.3</span></div>
+    <div class="brand">Grant Reporting Assistant <span class="ver">V.2.1</span></div>
     <nav class="steps" aria-label="Progress">
       <span data-step="upload" class="active">1 Upload</span>
       <span data-step="prepare">2 Prepare</span>
       <span data-step="review">3 Review</span>
     </nav>
-    <button id="settings-btn" class="link">Settings</button>
+    <div class="top-links"><button id="history-btn" class="link">Past reports</button>
+      <button id="settings-btn" class="link">Settings</button></div>
   </header>
 
   <main>
@@ -47,6 +48,15 @@
       <button id="delete-all" class="secondary">Delete all saved runs</button>
       <p id="delete-all-msg" class="msg" role="status"></p>
       <div class="actions"><button id="setup-close" class="secondary" type="button" hidden>Close</button></div>
+    </section>
+
+    <!-- Past reports: earlier results, opened again -->
+    <section id="past" class="card" hidden>
+      <div class="head"><h2>Past reports</h2><button type="button" id="past-close" class="secondary">Close</button></div>
+      <p class="muted">Results of your last 30 reports, newest first, including each version after a correction. Only the finished tables, notes and choices are kept, never your uploaded files or client records. They stay on this computer and are not sent anywhere.</p>
+      <ul id="past-list" class="past-list"></ul>
+      <p id="past-msg" class="msg" role="status"></p>
+      <div class="actions"><button type="button" id="past-delete-all" class="link" hidden>Delete all past reports</button></div>
     </section>
 
     <!-- 1 Upload -->
@@ -117,6 +127,7 @@
         </div>
       </div>
       <p id="demo-banner" class="demo-banner" hidden>This is the recorded demo with fictional data. No AI service was used. To prepare a report from your own data, add your AI key in <button type="button" class="link" id="demo-settings">Settings</button> and upload your files.</p>
+      <p id="past-banner" class="demo-banner" hidden></p>
       <p id="review-msg" class="msg" role="status"></p>
       <p id="save-line" class="muted save-line" hidden>Do you run this report often? <button type="button" id="save-choices" class="link">Save this run's choices for next time</button></p>
       <div id="tables"></div>
@@ -130,7 +141,7 @@
           <li><a id="dl-log" href="#">AI activity report</a> <span class="muted">What stayed on this computer and what was sent to the AI.</span></li>
         </ul>
       </div>
-      <div class="card">
+      <div class="card" id="correct-card">
         <h3>Request a correction</h3>
         <p class="muted">Describe what should change in plain words, for example "count clients by county of residence, not office". Affected figures are recalculated.</p>
         <form id="correct-form">
@@ -145,6 +156,6 @@
     </section>
   </main>
   <div id="explain" class="explain" role="dialog" hidden></div>
-  <script src="/static/app.js?v=25"></script>
+  <script src="/static/app.js?v=26"></script>
 </body>
 </html>
