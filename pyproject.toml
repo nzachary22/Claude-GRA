@@ -19,6 +19,7 @@ dependencies = [
     "anthropic>=2.3",
     "openai>=3.40",
     "keyring>=25",
+    "tzdata>=2024.1; sys_platform == 'win32'",  # time zones by name (Windows has no built-in list)
 ]
 
 [project.optional-dependencies]
