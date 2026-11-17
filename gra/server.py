@@ -154,6 +154,28 @@ def create_app(model_factory=None) -> FastAPI:
     def data_quality(run_id: str):
         return _download(api.data_quality(run_id))
 
+    # ------------------------------------------------------------ past reports
+
+    @app.get("/api/history")
+    def list_history():
+        return api.list_history()
+
+    @app.delete("/api/history")
+    def delete_all_history():
+        return api.delete_all_history()
+
+    @app.get("/api/history/{entry_id}")
+    def get_history(entry_id: str):
+        return api.get_history(entry_id)
+
+    @app.delete("/api/history/{entry_id}")
+    def delete_history(entry_id: str):
+        return api.delete_history(entry_id)
+
+    @app.get("/api/history/{entry_id}/export.{fmt}")
+    def history_export(entry_id: str, fmt: str):
+        return _download(api.history_export(entry_id, fmt))
+
     @app.get("/api/sample")
     def sample():
         return api.sample()

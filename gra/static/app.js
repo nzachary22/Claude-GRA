@@ -68,7 +68,7 @@
     return s;
   }
   const closeSetup = () => { $("setup").hidden = true; $("whats-new").hidden = true; };
-  $("settings-btn").onclick = () => { if ($("setup").hidden) $("setup").hidden = false; else closeSetup(); };
+  $("settings-btn").onclick = () => { if ($("setup").hidden) { $("setup").hidden = false; $("past").hidden = true; } else closeSetup(); };
   $("setup-close").onclick = closeSetup;
   $("demo-settings").onclick = () => { $("setup").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
   $("providers").onchange = async () => {
@@ -198,7 +198,7 @@
     $("period-start").value = s.period[0]; $("period-end").value = s.period[1];
     return s;
   }
-  const toUpload = () => { history.replaceState(null, "", location.pathname); show("upload"); $("upload").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  const toUpload = () => { state.past = null; history.replaceState(null, "", location.pathname); show("upload"); $("upload").scrollIntoView({ behavior: "smooth", block: "start" }); };
   function demoMode(on) {
     state.demoReady = on;
     $("demo-ready").hidden = !on;
@@ -339,7 +339,7 @@
     if (state.polling) return;  // never overlap requests, or events would repeat
     state.polling = true;
     let r;
-    try { r = await api(`/api/runs/${state.runId}?since=${state.seen}`); } catch { return; } finally { state.polling = false; }
+    try { r = await api(`/api/runs/${state.runId}?since=${state.seen}`); } catch (err) { lostRun(err); return; } finally { state.polling = false; }
     if (state.stopped === state.runId || r.id !== state.runId) return;  // Cancel was pressed while this was loading
     state.seen = r.event_count;
     for (const e of r.events) {
@@ -353,6 +353,20 @@
     state.lastPoll = r;
     if (r.status === "done") { clearInterval(state.timer); renderReview(r); }
     else if (r.status === "failed" || r.status === "cancelled") showStopped(r);
+  }
+  // A run the app no longer has in memory (it was restarted, or the browser tab reloaded): its latest
+  // result opens from Past reports if it finished; otherwise the first step is shown again.
+  async function lostRun(err) {
+    if (!/Unknown report run/.test(err.message || "")) return;  // a passing problem: the next poll tries again
+    const id = state.runId;
+    clearInterval(state.timer);
+    let list = [];
+    try { list = await api("/api/history"); } catch {}
+    if (state.runId !== id) return;
+    const hit = list.find((h) => h.run === id);  // newest first
+    if (hit) { openPast(hit.id); return; }
+    startNewReport();
+    msg("upload-msg", "That report is no longer open. Finished reports are under Past reports.");
   }
   // A stopped run: say why, and offer a new report (the files stay in the upload boxes).
   function showStopped(r) {
@@ -375,7 +389,7 @@
   // Back to the first step with the same files and period, ready to change anything and prepare again.
   function startNewReport() {
     clearInterval(state.timer);
-    state.runId = null; state.last = null;
+    state.runId = null; state.last = null; state.past = null;
     history.replaceState(null, "", location.pathname);
     show("upload");
     $("start").disabled = !(state.reportFiles.length && state.dataFiles.length);
@@ -392,23 +406,37 @@
   };
 
   // ------------------------------------------------------------ review
-  function renderReview(r) {
+  // past: a saved result from Past reports, shown as it was, with nothing to recalculate.
+  function renderReview(r, past = null) {
     state.last = r;
+    state.past = past ? past.id : null;
     show("review");
     $("demo-banner").hidden = !r.demo;
     $("review").classList.toggle("demo", !!r.demo);
-    $("save-line").hidden = !!r.demo || !(r.corrections || r.notes.some((n) => n.key && n.kind === "assumption"));
+    $("review").classList.toggle("past", !!past);
+    $("past-banner").hidden = !past;
+    if (past) {
+      $("past-banner").innerHTML = `<b>A past report</b>, prepared ${esc(when(past.saved_ts))}${past.corrections ? ` (after ${past.corrections} correction${past.corrections > 1 ? "s" : ""})` : ""}. These are the results as they were then. Copy and the downloads work as usual. To change anything, prepare the report again.`;
+    }
+    msg("review-msg", "");
+    $("save-line").hidden = !!r.demo || !!past || !(r.corrections || r.notes.some((n) => n.key && n.kind === "assumption"));
     $("save-choices").disabled = false; $("save-choices").textContent = "Save this run's choices for next time";
-    $("correct-form").closest(".card").hidden = !!r.demo;
+    $("correct-card").hidden = !!r.demo || !!past;
+    $("delete-run").hidden = !!past;
+    $("tech").hidden = !!past;
     const gaps = r.tables.reduce((n, t) => n + t.rows.reduce((m, row) => m + row.cells.filter((c) => c.gap).length, 0), 0);
     $("review-title").textContent = r.report.organization || r.report.title || "Draft tables";
     const reportLine = [r.report.organization ? r.report.title : "", r.report.subtitle].filter(Boolean).join(" · ");
     $("review-sub").textContent = (reportLine ? `${reportLine} · ` : "") + `Draft · Reporting period ${r.period[0]} to ${r.period[1]} · ${r.tables.length} table(s) · ${r.notes.length} note(s)` + (gaps ? ` · ${gaps} unavailable figure(s)` : "");
-    $("dl-word").href = `/api/runs/${r.id}/export.docx`;
-    $("dl-excel").href = `/api/runs/${r.id}/export.xlsx`;
-    $("dl-log").href = `/api/runs/${r.id}/activity-report`;
+    const base = past ? `/api/history/${past.id}` : `/api/runs/${r.id}`;
+    $("dl-word").href = `${base}/export.docx`;
+    $("dl-excel").href = `${base}/export.xlsx`;
+    // The AI activity report stays available while the run's files are kept (the last five runs).
+    $("dl-log").href = `/api/runs/${past ? past.run : r.id}/activity-report`;
+    $("dl-log").closest("li").hidden = !!past && !past.has_activity;
     $("dl-quality").href = `/api/runs/${r.id}/data-quality`;
-    $("quality-item").hidden = !r.data_gaps;
+    $("quality-item").hidden = !r.data_gaps || !!past;
+    $("dl-log").closest(".more").hidden = !!past && !past.has_activity;
     const scope = noteScope(r);
     $("considerations").innerHTML = considerationsHtml(scope.key, r);
     $("shared-notes").innerHTML = scope.shared.length ? `<div class="card"><h3>Assumptions and notes for more than one table</h3><div class="notes">${scope.shared.map((n) => noteHtml(n, affects(n, r))).join("")}</div></div>` : "";
@@ -573,7 +601,7 @@
   }
   $("correct-form").onsubmit = (e) => { e.preventDefault(); submitCorrection($("correct-text").value); };
   $("delete-run").onclick = async () => {
-    if (!state.runId || !confirm("Delete this run's uploads, database and AI record from this computer? Download the tables and AI activity report first if you need them.")) return;
+    if (!state.runId || !confirm("Delete this run's uploads, database and AI record from this computer? Its tables stay in Past reports until you delete them there. Download the AI activity report first if you need it.")) return;
     try {
       await api(`/api/runs/${state.runId}`, { method: "DELETE" });
       state.runId = null; state.last = null;
@@ -624,10 +652,70 @@
     } catch (err) { $("tech-body").textContent = err.message; }
   };
 
+  // ------------------------------------------------------------ past reports
+  const when = (ts) => (ts ? new Date(ts * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "an earlier date");
+  async function loadHistory() {
+    let list = [];
+    try { list = await api("/api/history"); } catch (err) { msg("past-msg", err.message, "err"); }
+    state.history = list;
+    $("past-delete-all").hidden = !list.length;
+    $("past-list").innerHTML = list.length ? list.map((h) => {
+      const name = [h.organization, h.title].filter(Boolean).join(" · ") || h.report_files.join(", ") || "Report";
+      const bits = [`Reporting period ${h.period[0]} to ${h.period[1]}`, `${h.tables} table${h.tables === 1 ? "" : "s"}`,
+        `prepared ${when(h.saved_ts)}`, h.corrections ? `after ${h.corrections} correction${h.corrections > 1 ? "s" : ""}` : ""].filter(Boolean);
+      return `<li class="${h.id === state.past ? "current" : ""}"><div class="what"><b>${esc(name)}</b><span class="muted">${esc(bits.join(" · "))}</span></div>
+        <div class="past-actions"><button type="button" class="secondary" data-open="${esc(h.id)}">Open</button>
+        <button type="button" class="link" data-del="${esc(h.id)}" aria-label="Delete ${esc(name)}, ${esc(when(h.saved_ts))}">Delete</button></div></li>`;
+    }).join("") : `<li class="muted">No past reports yet. Each report you prepare is kept here once it is finished.</li>`;
+  }
+  const closePast = () => { $("past").hidden = true; msg("past-msg", ""); };
+  $("history-btn").onclick = () => {
+    if (!$("past").hidden) { closePast(); return; }
+    closeSetup();
+    $("past").hidden = false;
+    loadHistory();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  $("past-close").onclick = closePast;
+  async function openPast(id) {
+    let e;
+    try { e = await api(`/api/history/${id}`); } catch (err) {
+      $("past").hidden = false; loadHistory(); msg("past-msg", err.message, "err"); return;
+    }
+    closePast();
+    if (e.live) { startPolling(e.run); return; }  // still open in this session: everything works, Recalculate too
+    clearInterval(state.timer);
+    state.runId = null;
+    history.replaceState(null, "", `#past=${e.id}`);
+    renderReview({ ...e, id: e.run }, e);
+    window.scrollTo({ top: 0 });
+  }
+  $("past-list").onclick = async (ev) => {
+    const b = ev.target.closest("button");
+    if (!b) return;
+    if (b.dataset.open) { openPast(b.dataset.open); return; }
+    if (b.dataset.del) {
+      if (!confirm("Delete this past report from Past reports? Download what you need first.")) return;
+      try { await api(`/api/history/${b.dataset.del}`, { method: "DELETE" }); } catch (err) { msg("past-msg", err.message, "err"); }
+      if (state.past === b.dataset.del) toUpload();
+      loadHistory();
+    }
+  };
+  $("past-delete-all").onclick = async () => {
+    if (!confirm("Delete every past report from Past reports? Download what you need first.")) return;
+    try {
+      const r = await api("/api/history", { method: "DELETE" });
+      if (state.past) toUpload();
+      await loadHistory();
+      msg("past-msg", `Deleted ${r.deleted} past report(s).`, "ok");
+    } catch (err) { msg("past-msg", err.message, "err"); }
+  };
+
   // Reopening or refreshing the page returns to the same report run.
   const m = location.hash.match(/run=([a-f0-9]+)/);
+  const pm = location.hash.match(/past=([a-f0-9]+-\d+)/);
   checkStatus().then((s) => {
-    if (m) return;  // never over a report in progress
+    if (m || pm) return;  // never over a report in progress
     // Settings opens by itself while no key is saved (it holds the demo and the key field),
     // and once after an update, so people who already have a key see what's new.
     if (!s.has_key) { $("setup").hidden = false; return; }
@@ -637,4 +725,5 @@
     api("/api/settings-seen", { method: "POST" }).catch(() => {});
   }).catch(() => {});
   if (m) startPolling(m[1]);
+  else if (pm) openPast(pm[1]);
 })();

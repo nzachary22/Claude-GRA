@@ -178,6 +178,11 @@ ROUTES = [
     ("GET", rf"/api/runs/{_RUN}/export\.(?P<fmt>[a-z]+)", lambda m, q, b, f: API.export(m["run"], m["fmt"])),
     ("GET", rf"/api/runs/{_RUN}/data-quality", lambda m, q, b, f: API.data_quality(m["run"])),
     ("POST", rf"/api/web/restore-activity/{_RUN}", lambda m, q, b, f: restore_activity(m["run"], b.get("lines") or [])),
+    ("GET", r"/api/history", lambda m, q, b, f: API.list_history()),
+    ("DELETE", r"/api/history", lambda m, q, b, f: API.delete_all_history()),
+    ("GET", r"/api/history/(?P<h>[^/]+)", lambda m, q, b, f: API.get_history(m["h"])),
+    ("DELETE", r"/api/history/(?P<h>[^/]+)", lambda m, q, b, f: API.delete_history(m["h"])),
+    ("GET", r"/api/history/(?P<h>[^/]+)/export\.(?P<fmt>[a-z]+)", lambda m, q, b, f: API.history_export(m["h"], m["fmt"])),
     ("GET", r"/api/sample", lambda m, q, b, f: API.sample()),
     ("GET", r"/api/sample/(?P<name>[^/]+)", lambda m, q, b, f: _sample_file(m["name"])),
 ]
