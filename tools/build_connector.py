@@ -1,6 +1,6 @@
 """Build the Claude app connector: a one-click Claude Desktop extension (.mcpb file).
 
-    python tools/build_connector.py
+    python tools/build_connector.py [--version 2.1.0-preview.2]
 
 Writes dist/grant-reporting-assistant-<version>.mcpb and prints its size and SHA-256.
 The bundle holds the connector's manifest and starter (connector/), the committed
@@ -31,8 +31,10 @@ CONNECTOR_FILES = ["manifest.json", "icon.png", "server/main.py", "server/start.
 LEAVE_OUT = ("gra/static/",)  # the app's web page; the connector has none
 
 
-def build(dest: Path = ROOT / "dist", lib_cache: Path | None = None) -> Path:
-    ver = version()
+def build(dest: Path = ROOT / "dist", lib_cache: Path | None = None, ver: str | None = None) -> Path:
+    """ver overrides the version (default: pyproject's), e.g. 2.1.0-preview.2 for a test build, so the
+    Claude app sees a new build as an update rather than the version already installed."""
+    ver = ver or version()
     out = dest / f"grant-reporting-assistant-{ver}.mcpb"
     out.parent.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -72,4 +74,8 @@ def build(dest: Path = ROOT / "dist", lib_cache: Path | None = None) -> Path:
 
 
 if __name__ == "__main__":
-    build()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build the Claude app extension (.mcpb).")
+    parser.add_argument("--version", help="version to stamp instead of pyproject's, e.g. 2.1.0-preview.2")
+    build(ver=parser.parse_args().version)
