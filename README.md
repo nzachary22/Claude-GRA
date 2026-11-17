@@ -63,6 +63,12 @@ The browser version is the same app, running inside the web page with [Pyodide](
 | `web/` | The background worker that starts Python in the page, and the script that connects the page to it. |
 | `tools/build_web.py` | Builds the site (`dist/web/` and `grant-reporting-assistant-web-<version>.zip`) from pinned, fingerprint-checked parts, with the security headers in `_headers`. |
 
+## In the Claude app, with your normal Claude login (no API key)
+
+GRA can also run as an extension of the Claude desktop app. You chat with Claude under your usual Claude account, so the work counts toward your plan's usage limits instead of API charges. Claude calls GRA's tools on your computer: GRA imports the data there and gives Claude only the report, the non-identifying data description and the results of privacy-checked aggregate queries, with the same rules and checks as the app. It saves the Word and Excel files and the AI activity report in Documents > Grant Reporting Assistant.
+
+Install `grant-reporting-assistant-<version>.mcpb` from [Releases](https://github.com/nzachary22/Claude-GRA/releases) by double-clicking it with the Claude app open (Python 3.11 or newer is needed, as for the desktop app). Step-by-step setup: [connector/SETUP.md](connector/SETUP.md).
+
 ## How client data is protected
 
 | Part | What it does |
@@ -98,7 +104,7 @@ python -m venv %LOCALAPPDATA%\GrantReportingAssistant\venv
 
 Working files (databases, uploads, exports) are stored in `%LOCALAPPDATA%\GrantReportingAssistant` (Windows) or `~/Library/Application Support/GrantReportingAssistant` (Mac), outside this repository. Set `GRA_DATA_DIR` to override.
 
-To build the release zip from a clean commit: `python tools/build_release.py`. It packs only `gra/`, `start.bat`, `start.command`, `pyproject.toml`, `LICENSE` and `README.md` into `dist/` and prints the size and SHA-256. To build the browser version: `python tools/build_web.py`; its browser tests (`tests/test_web_browser.py`) need Playwright and run in CI in Chromium, Firefox and WebKit.
+To build the release zip from a clean commit: `python tools/build_release.py`. It packs only `gra/`, `start.bat`, `start.command`, `pyproject.toml`, `LICENSE` and `README.md` into `dist/` and prints the size and SHA-256. To build the Claude app extension: `python tools/build_connector.py` (writes `dist/grant-reporting-assistant-<version>.mcpb`; the connector is `gra/connector.py`, served over MCP by `gra/mcp_stdio.py`, and `connector/` holds its manifest and starters). To build the browser version: `python tools/build_web.py`; its browser tests (`tests/test_web_browser.py`) need Playwright and run in CI in Chromium, Firefox and WebKit.
 
 Tests run on Windows and macOS in GitHub Actions on every pull request. The Mac job also unzips the release, runs `start.command` end to end, checks the Dock app, and saves and reads keys in the Keychain.
 

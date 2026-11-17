@@ -483,6 +483,7 @@ class QueryGate:
     def protected_matches(self, text: str, limit: int = 3) -> list[str]:
         """Stored identifier or note values found in text (at most limit of them)."""
         tokens = set(_TOKEN.findall(text))
+        tokens |= {t.rstrip(".:/-+#") for t in tokens}  # an ID at the end of a sentence ("... JR-0012.")
         found: list[str] = []
         for value in sorted(self._protected_values):
             if (value in tokens) if _TOKEN.fullmatch(value) else (value in text):

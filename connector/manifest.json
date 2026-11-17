@@ -1,0 +1,60 @@
+{
+  "manifest_version": "0.3",
+  "name": "grant-reporting-assistant",
+  "display_name": "Grant Reporting Assistant",
+  "version": "2.1.0",
+  "description": "Rebuild grant-report tables from your client data in a Claude chat, with your normal Claude login and no API key. Client records stay on your computer.",
+  "long_description": "Grant Reporting Assistant (GRA) rebuilds the tables of a past grant report, or a funder's requirements, for a new reporting period from your organization's client and case data.\n\nGRA imports the data files into a protected database on your computer. Claude sees only the report, a description of the data with no client details, and totals from GRA's privacy-checked queries, never individual records, names, IDs or notes. Every figure comes from a query on your computer, and GRA saves the finished tables as Word and Excel files, with an AI activity report of everything Claude was shown.\n\nAsk Claude, for example: \"Use Grant Reporting Assistant to rebuild my 2025 report for 2026. The report and data are in Documents\\Grant data.\" To try it first, ask: \"Run the Grant Reporting Assistant sample report.\"",
+  "author": {"name": "Nate Zachary", "url": "https://github.com/nzachary22/Claude-GRA"},
+  "homepage": "https://grant-reporting-assistant.netlify.app/",
+  "repository": {"type": "git", "url": "https://github.com/nzachary22/Claude-GRA"},
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": ["grant reporting", "nonprofit", "legal aid", "privacy", "reports"],
+  "server": {
+    "type": "python",
+    "entry_point": "server/main.py",
+    "mcp_config": {
+      "command": "python",
+      "args": ["${__dirname}/server/main.py", "--output", "${user_config.output_folder}", "--allow", "${user_config.read_folders}"],
+      "env": {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1"},
+      "platform_overrides": {
+        "darwin": {
+          "command": "/bin/sh",
+          "args": ["${__dirname}/server/start.sh", "--output", "${user_config.output_folder}", "--allow", "${user_config.read_folders}"]
+        }
+      }
+    }
+  },
+  "tools": [
+    {"name": "find_files", "description": "List the report and data files in a folder (names only)."},
+    {"name": "preview_data", "description": "Show what GRA keeps private and what it may share."},
+    {"name": "start_report", "description": "Import the data on this computer and start a report."},
+    {"name": "start_sample_report", "description": "Try GRA on its fictional sample."},
+    {"name": "run_query", "description": "Run a privacy-checked count; only totals come back."},
+    {"name": "note_assumption", "description": "Record an assumption, gap or warning."},
+    {"name": "submit_tables", "description": "Check the finished tables and save Word and Excel files."},
+    {"name": "show_results", "description": "Show the finished tables and saved files again."}
+  ],
+  "user_config": {
+    "read_folders": {
+      "type": "directory",
+      "title": "Folders GRA may read",
+      "description": "GRA only opens reports and data files inside these folders. Add the folder that holds your files if it is somewhere else, such as a shared or Google Drive folder.",
+      "multiple": true,
+      "required": true,
+      "default": ["${HOME}"]
+    },
+    "output_folder": {
+      "type": "directory",
+      "title": "Save finished reports in",
+      "description": "GRA makes a \"Grant Reporting Assistant\" folder here for the Word and Excel files.",
+      "required": true,
+      "default": "${DOCUMENTS}"
+    }
+  },
+  "compatibility": {
+    "platforms": ["win32", "darwin"],
+    "runtimes": {"python": ">=3.11"}
+  }
+}

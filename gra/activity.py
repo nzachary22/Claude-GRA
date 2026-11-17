@@ -97,6 +97,8 @@ def service_names(start: dict) -> tuple[str, str]:
     """The AI service a run used, and whose account terms apply. Runs before V.1.1 always used Claude."""
     if start.get("provider") == "demo":
         return "None (recorded demo with fictional data; nothing was sent to any AI service)", "AI service"
+    if start.get("provider") == "claude-app":
+        return "Anthropic Claude, in the Claude app with the user's own Claude login (no API key)", "Anthropic"
     if start.get("provider") == "openai":
         if start.get("stored") is False:
             return "OpenAI (requests sent with storage turned off)", "OpenAI"

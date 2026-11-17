@@ -385,13 +385,23 @@ class ReportSession:
             + "Rebuild every table in the uploaded report for the current reporting period, then submit them.")})
         return blocks
 
-    def _loop(self):
+    def begin_round(self):
+        """Start a round of work (the first draft, or one correction): tables saved so far are kept,
+        and each table gets a fresh set of attempts. The Claude app connector calls this itself."""
         with self._lock:
             self._draft = {t.id: t for t in self.tables}
             self._order = list(self._draft)
             self._pending_report = None
             self._attempts = {}
             self._inventory_asked = False
+
+    def handle_tool(self, name: str, args: dict) -> tuple[str, bool, bool]:
+        """Run one tool call: (reply text, is_error, tables_accepted). Used by the loop below and by the
+        Claude app connector, where the chat's own Claude makes the calls."""
+        return self._handle(name, args)
+
+    def _loop(self):
+        self.begin_round()
         self.status = "running"
         self.error = None
         start = time.monotonic()
