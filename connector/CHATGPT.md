@@ -2,6 +2,8 @@
 
 This is a third way to use Grant Reporting Assistant (GRA). You chat with ChatGPT in the ChatGPT desktop app, signed in with your normal ChatGPT account, and the work counts toward your plan's usual usage limits. GRA runs on your computer and does the counting there, so client records stay on your computer, just as in the browser version and the Claude app.
 
+The ChatGPT app can run commands on your computer by itself, so GRA uses a **private data folder**: **Documents > GRA Private Data**. The installer sets ChatGPT's own settings so that ChatGPT's commands are blocked from that folder, and GRA reads reports and data files only from there. If the block is ever missing, GRA stops before reading anything.
+
 ## What you need
 
 - The **ChatGPT desktop app** for Windows or Mac, signed in with your ChatGPT account. Get it at [chatgpt.com/download](https://chatgpt.com/download). (The ChatGPT website and phone app can't run GRA, because GRA runs on your computer.)
@@ -23,10 +25,10 @@ This is a third way to use Grant Reporting Assistant (GRA). You chat with ChatGP
    - **Mac:** right-click (or Control-click) **Install on Mac.command**, click **Open**, then click **Open** again.
      - If the Mac says it can't be opened, open **System Settings**, click **Privacy & Security**, scroll down, click **Open Anyway** next to the message about Install on Mac.command, and click **Open**.
 4. A window shows the installer's progress. It copies GRA to your computer and sets up Word support (a one-time download of about 5 MB).
-5. A box asks whether your report and data files are somewhere else too, outside your home folder:
-   - If your files are in a **Google Drive** or **shared drive** folder (for example `G:\My Drive\...`), click **Yes**, choose that folder, and click **Select Folder** (Mac: **Open**). It asks again, so you can add more folders. Click **No** when you are done.
-   - Otherwise, click **No**.
-6. A box says **Grant Reporting Assistant is installed for the ChatGPT app**. Click **OK**, then close the installer window.
+5. A box shows GRA's private data folder (**Documents > GRA Private Data**) and asks whether you also keep report or data files in another folder that should be private:
+   - Usually, click **No**, and move your files into **GRA Private Data** later.
+   - To keep files where they are, click **Yes**, choose the folder that holds them (not your whole home folder or drive), and click **Select Folder** (Mac: **Open**). That folder becomes private too: ChatGPT itself is blocked from it, so don't choose a folder you want ChatGPT to use for other work. It asks again, so you can add more folders. Click **No** when you are done.
+6. A box says **Grant Reporting Assistant is installed for the ChatGPT app** and names the private folder. Click **OK**, then close the installer window.
 7. Open the ChatGPT app again.
 
 To check that ChatGPT sees GRA: in the ChatGPT app, open **Settings**, then **MCP servers**. **grant_reporting_assistant** is listed and switched on.
@@ -44,13 +46,12 @@ Your chats with GRA contain report tables (totals, never client records). If you
 
 ## Prepare your own report
 
-1. Put your past report (or the grant requirements: PDF, Word, Excel or text) and your data files (CSV, Excel or JSON exports) in one folder of their own. ChatGPT sees the names of the files in that folder, so keep other files, such as documents named after clients, elsewhere.
-2. Copy the folder's location:
-   - **Windows:** open the folder in File Explorer, click the address bar at the top, and press **Ctrl+C**.
-   - **Mac:** in Finder, right-click the folder, hold the **Option** key, and click **Copy "..." as Pathname**.
-3. Start a **new chat** and type something like:
+1. Put your past report (or the grant requirements: PDF, Word, Excel or text) and your data files (CSV, Excel or JSON exports) in **Documents > GRA Private Data** (or another private folder you added). You can make a subfolder for each report. ChatGPT sees the names of the files there, so keep other files, such as documents named after clients, elsewhere.
+2. Start a **new chat** and type something like:
 
-   > Use Grant Reporting Assistant to rebuild the tables in my 2025 report for January 1 to December 31, 2026. The report and data files are in *(paste the folder location)*.
+   > Use Grant Reporting Assistant to rebuild the tables in my 2025 report for January 1 to December 31, 2026. The files are in GRA Private Data.
+
+3. If you keep several reports there, name the subfolder, for example: *The files are in GRA Private Data, in the folder "2026 county grant".*
 
 4. ChatGPT lists the files, starts the report, runs GRA's privacy-checked counts and shows the finished tables in the chat. The Word and Excel files, an **AI activity report** (what ChatGPT was shown) and, when something was missing, a **data collection guide** are saved in **Documents > Grant Reporting Assistant**, in a folder named after the report.
 5. If ChatGPT lists **Some considerations to check**, answer them in the chat, or ask for any other change ("count only closed cases", "use the intake date"). GRA recalculates, saves the files again, and ChatGPT shows the tables that changed.
@@ -61,7 +62,9 @@ To check first what GRA keeps private and what it shares, ask: **Use Grant Repor
 
 - **Never attach your data files to the chat** or paste records into it. Give ChatGPT only the folder location; GRA reads the files on your computer and shows ChatGPT only totals.
 - GRA has no tool that shows ChatGPT a data file's contents; only totals from its privacy-checked counts come back.
-- **The ChatGPT app can also run commands and read files on your computer by itself**, which GRA can't switch off. GRA's rules tell ChatGPT never to open, list or read your data files except through GRA. To be sure: don't open your data folder as a project or folder in the ChatGPT app, and **if ChatGPT ever asks you to approve a command or file read that mentions your data files or their folder, click Deny**.
+- **ChatGPT itself is blocked from your private folders.** The ChatGPT app can run commands on your computer by itself. The installer sets ChatGPT's permissions so that its commands can't open, list or copy anything in GRA's private data folders or in GRA's working files (the protected database it imports the data into), and so that ChatGPT can't ask you to let a command around that block. GRA's own tools still read the files, because they run separately from ChatGPT's commands.
+- **GRA checks the block every time.** Before it reads any file, GRA checks ChatGPT's settings. If the block is missing or weakened, GRA stops, reads nothing, and asks you to run the installer again. In ChatGPT, GRA also reads only files inside the private folders.
+- **Leave ChatGPT's permissions on the default.** If you switch a chat to **Full access** in the ChatGPT app, ChatGPT's commands are no longer sandboxed and the block can't hold. Keep chats about client data on the default setting.
 - You can see everything GRA gave ChatGPT: open the **AI activity report** saved with the tables.
 - GRA checks the report for client names and IDs from your data before ChatGPT sees it, and stops if it finds one.
 
@@ -69,7 +72,8 @@ To check first what GRA keeps private and what it shares, ask: **Use Grant Repor
 
 - **The installer says Python was not found:** install Python 3.11 or newer (see above; on Windows tick **Add python.exe to PATH**), then run the installer again.
 - **GRA isn't listed under Settings > MCP servers, or ChatGPT can't find it:** quit the ChatGPT app completely (on Windows, also right-click its icon near the clock and quit it there, if it is shown) and open it again. If it is listed but switched off, switch it on.
-- **"outside the folders GRA may read":** run the installer again and add the folder when it asks (folders you added before are kept). Then quit and reopen the ChatGPT app.
+- **"outside the folders GRA may read" or "private data folders":** move the files into **Documents > GRA Private Data**, or run the installer again and add their folder as a private folder (folders you added before are kept). Then quit and reopen the ChatGPT app.
+- **"GRA stopped: ... ChatGPT itself could open the data files":** ChatGPT's block is missing, for example because its settings were changed. Run the installer again, then quit and reopen the ChatGPT app.
 - **"Word support is still being set up":** check the internet connection, run the installer again, and reopen the ChatGPT app.
 - **To update GRA:** quit the ChatGPT app, download the new zip, and run its installer the same way. Your folders are kept.
 - **To remove GRA:** quit the ChatGPT app, open the **Uninstall** folder inside **Grant Reporting Assistant for ChatGPT**, and double-click **Uninstall on Windows.bat** (Mac: right-click **Uninstall on Mac.command**, then **Open**). Your saved reports are kept.
@@ -77,4 +81,6 @@ To check first what GRA keeps private and what it shares, ask: **Use Grant Repor
 ## What the installer changes
 
 - It copies GRA into your computer's app data folder (Windows: `AppData\Local\GrantReportingAssistant\ChatGPT connector`; Mac: `Library/Application Support/GrantReportingAssistant/ChatGPT connector`).
-- It adds one section, `[mcp_servers.grant_reporting_assistant]`, to the ChatGPT app's settings file (`.codex/config.toml` in your home folder), and keeps the previous file as `config.toml.gra-backup`. Nothing else in that file changes. The section lets GRA's tools run without asking each time, because they only work on your computer behind GRA's privacy checks.
+- It makes **Documents > GRA Private Data**, and a folder for GRA's working files (`.grant-reporting-assistant` in your home folder).
+- In the ChatGPT app's settings file (`.codex/config.toml` in your home folder) it adds GRA (`[mcp_servers.grant_reporting_assistant]`), a permissions profile (`[permissions.gra-protected]`, ChatGPT's usual access with GRA's private folders and working files set to **deny**), and makes that profile the default. It sets ChatGPT's approval policy to turn down requests to run commands outside its sandbox or to ask for more permissions; other approval prompts are unchanged. GRA's tools run without asking each time, because they only work on your computer behind GRA's privacy checks.
+- Anything else in the file is kept. A setting GRA replaces (such as an earlier approval policy) is kept as a comment and put back when you remove GRA, and the previous file is kept as `config.toml.gra-backup`.

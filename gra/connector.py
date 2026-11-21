@@ -76,7 +76,7 @@ GRA's rules:
 
 CLAUDE_INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. When the tables are done, get_doc_and_sheet gives them ready to deliver as a Claude doc and a Claude sheet, the default way to show the results. Never open, read or analyze the user's client data files with any other tool; only GRA's tools may touch them."""
 
-CHATGPT_INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. Never open, read, list or analyze the user's client data files with any other tool (no shell commands, scripts or file reads); only GRA's tools may touch them. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. When the tables are done, GRA saves them as Word and Excel files on this computer, and you show them in the chat exactly as GRA gives them."""
+CHATGPT_INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. Never open, read, list or analyze the user's client data files with any other tool (no shell commands, scripts or file reads); only GRA's tools may touch them. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. In ChatGPT, GRA reads files only from its private data folders, which ChatGPT's own commands are blocked from opening; call find_files with no folder to list them. When the tables are done, GRA saves them as Word and Excel files on this computer, and you show them in the chat exactly as GRA gives them."""
 
 
 @dataclass(frozen=True)
@@ -124,8 +124,10 @@ CHATGPT = Client(
     other_tools=("shell or terminal commands, scripts, file readers, code execution, computer use or a browser; "
                  "to list a folder, use find_files"),
     deliver="show them to the user", redeliver="show the tables that changed again",
-    add_folder=("The user can add its folder by running the Grant Reporting Assistant installer for ChatGPT again, "
-                "choosing the folder when it asks, and then quitting and reopening the ChatGPT app."),
+    add_folder=("In ChatGPT, GRA reads only its private data folders, which ChatGPT itself is blocked from opening. "
+                "Ask the user to move the report and data files into one of them (or to add the folder as a private "
+                "folder by running the Grant Reporting Assistant installer for ChatGPT again, then quitting and "
+                "reopening the ChatGPT app), and do not try to open the files any other way."),
     doc_and_sheet=False)
 
 CLIENTS = {c.key: c for c in (CLAUDE, CHATGPT)}
@@ -174,9 +176,9 @@ _PATHS = {"type": "array", "items": {"type": "string"}}
 CONNECTOR_TOOLS = [
     _tool("find_files",
           "List the files in a folder and its subfolders one level down (names, types and sizes only; nothing is "
-          "opened), to find the user's past report and data files. Use the folder path the user gives.",
-          {"folder": {"type": "string", "description": "Full path of the folder, e.g. C:\\Users\\me\\Documents\\Grant data"}},
-          ["folder"]),
+          "opened), to find the user's past report and data files. Use the folder path the user gives; leave it out "
+          "to list the folders GRA may read.",
+          {"folder": {"type": "string", "description": "Full path of the folder, e.g. C:\\Users\\me\\Documents\\Grant data"}}),
     _tool("preview_data",
           "Show which columns of the data files GRA keeps on this computer and what it may share (category values "
           "and totals), before starting a report. Nothing from the records themselves is returned.",
@@ -285,7 +287,24 @@ class Connector:
 
     # ------------------------------------------------------------ finding and previewing files
 
-    def find_files(self, folder: str) -> tuple[str, bool]:
+    def _guard(self) -> None:
+        """In ChatGPT, stop before reading any file unless ChatGPT's own tools are blocked from GRA's folders."""
+        if self.client is not CHATGPT:
+            return
+        from .chatgpt_guard import protection_problem
+
+        problem = protection_problem(self.read_roots and [*self.read_roots, _runs_dir()])
+        if problem:
+            raise UserError(f"GRA stopped: {problem}, so ChatGPT itself could open the data files. Nothing was read. "
+                            "Tell the user to run the Grant Reporting Assistant installer for ChatGPT again, then quit "
+                            "and reopen the ChatGPT app. Do not try to read or list the files any other way.")
+
+    def find_files(self, folder: str | None = None) -> tuple[str, bool]:
+        self._guard()
+        if not folder:
+            if not self.read_roots:
+                raise UserError("Ask the user which folder holds the report and data files, then call find_files on it.")
+            return "\n\n".join(self.find_files(str(r))[0] for r in self.read_roots), False
         root = self._folder(folder)
         found = []
         for p in sorted(root.rglob("*")):
@@ -308,6 +327,7 @@ class Connector:
     def preview_data(self, data_files: list) -> tuple[str, bool]:
         from .api import _preview_groups
 
+        self._guard()
         paths = self._files(data_files, READERS, "data")
         folder = _runs_dir() / f"preview-{uuid.uuid4().hex[:8]}"
         folder.mkdir(parents=True)
@@ -349,6 +369,7 @@ class Connector:
                 raise UserError("The reporting period ends before it starts.")
         except ValueError:
             raise UserError("Give the reporting period as two dates written YYYY-MM-DD.") from None
+        self._guard()
         reports = self._files(report_files or [], DOC_TYPES, "report")
         data = self._files(data_files, READERS, "data")
         overlap = {p.resolve() for p in reports} & {p.resolve() for p in data}

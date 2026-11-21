@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from gra import chatgpt_guard as guard
 from gra.connector import CHATGPT, CLAUDE, Connector, detect_client
 from gra.mcp_stdio import ToolServer
 from tests.test_connector import _rpc, replay
@@ -91,7 +92,8 @@ def test_instructions_follow_the_handshake():
 
 # ---------------------------------------------------------------- ChatGPT's settings file
 
-EXISTING = '''model = "gpt-6"   # the user's own settings
+EXISTING = """model = "gpt-6"   # the user's own settings
+approval_policy = "on-request"
 
 [mcp_servers.context7]
 command = "npx"
@@ -102,37 +104,93 @@ MY_ENV_VAR = "x"
 
 [profiles.work]
 model = "other"
-'''
+"""
+
+HOME = Path.home()
+PRIVATE = [HOME / "Documents" / "GRA Private Data", Path('/data/Grant "files" Ana María')]
+WORK = HOME / ".grant-reporting-assistant" / "chatgpt-work"
 
 
-def test_settings_keep_everything_else(tmp_path):
-    block = install.server_block("C:\\Python313\\python.exe", Path("C:\\Users\\Ana María\\AppData\\GRA\\main.py"),
-                                 Path("C:\\Users\\Ana María\\OneDrive\\Documents"),
-                                 [Path("C:\\Users\\Ana María"), Path('G:\\My Drive\\Grant "data"')])
-    once = install.with_ours(EXISTING, block)
-    twice = install.with_ours(once, block)
-    assert once == twice  # running the installer again replaces GRA's section, nothing else
+def _block(allow=PRIVATE):
+    return install.server_block("C:\\Python313\\python.exe", Path("C:\\Users\\Ana María\\AppData\\GRA\\main.py"),
+                                HOME / "Documents", allow, WORK)
+
+
+def test_settings_keep_everything_else_and_block_chatgpt():
+    once = install.with_ours(EXISTING, _block(), [*PRIVATE, WORK])
+    twice = install.with_ours(once, _block(), [*PRIVATE, WORK])
+    assert once == twice  # running the installer again replaces GRA's settings, nothing else
     parsed = tomllib.loads(once)
     assert parsed["model"] == "gpt-6" and parsed["profiles"]["work"]["model"] == "other"
     assert parsed["mcp_servers"]["context7"]["env"] == {"MY_ENV_VAR": "x"}
+    assert parsed["default_permissions"] == "gra-protected"
+    assert parsed["permissions"]["gra-protected"]["extends"] == ":workspace"
+    assert parsed["approval_policy"]["granular"]["sandbox_approval"] is False
     ours = parsed["mcp_servers"]["grant_reporting_assistant"]
     assert ours["command"] == "C:\\Python313\\python.exe" and ours["args"][1:3] == ["--client", "chatgpt"]
-    assert ours["args"][-1] == 'G:\\My Drive\\Grant "data"' and ours["tool_timeout_sec"] >= 600
-    assert install.allowed_before(once) == [Path("C:\\Users\\Ana María"), Path('G:\\My Drive\\Grant "data"')]
-    assert install.without_ours(once) == EXISTING
-    assert install.without_ours(block) == ""
+    assert ours["env"]["GRA_DATA_DIR"] == str(WORK) and ours["tool_timeout_sec"] >= 600
+    assert install.allowed_before(once) == PRIVATE
+    assert guard.protection_problem([*PRIVATE, WORK], once) is None
+    assert install.without_ours(once) == EXISTING  # removal puts the replaced approval policy back
 
 
-def test_settings_section_in_the_middle_is_replaced(tmp_path):
-    middle = "[mcp_servers.grant_reporting_assistant]\ncommand = \"old\"\n\n[mcp_servers.grant_reporting_assistant.env]\n" \
-             "A = \"1\"\n\n[other]\nkey = 1\n"
-    out = install.with_ours(middle, install.server_block("py", Path("m.py"), Path("d"), [Path("h")]))
+def test_users_own_profile_and_older_sandbox_settings():
+    mine = 'sandbox_mode = "workspace-write"\ndefault_permissions = "mine"\n\n[permissions.mine]\nextends = ":read-only"\n' \
+           '\n[sandbox_workspace_write]\nnetwork_access = true\n'
+    out = install.with_ours(mine, _block(), [*PRIVATE, WORK])
     parsed = tomllib.loads(out)
-    assert parsed["other"] == {"key": 1} and parsed["mcp_servers"]["grant_reporting_assistant"]["command"] == "py"
-    assert "old" not in out
+    assert "sandbox_mode" not in parsed and "sandbox_workspace_write" not in parsed  # they would bypass the profile
+    assert parsed["permissions"]["gra-protected"]["extends"] == "mine"  # the user's own profile carries on
+    assert guard.protection_problem([*PRIVATE, WORK], out) is None
+    assert install.without_ours(out) == mine
+    never = install.with_ours('approval_policy = "never"\n', _block(), [*PRIVATE, WORK])
+    assert tomllib.loads(never)["approval_policy"] == "never" and guard.protection_problem([*PRIVATE, WORK], never) is None
 
 
-def test_broken_settings_are_never_made_worse(tmp_path, monkeypatch):
+def test_gaps_in_the_block_are_found():
+    good = install.with_ours("", _block(), [*PRIVATE, WORK])
+    assert guard.protection_problem([*PRIVATE, WORK], good) is None
+    assert "not blocked" in guard.protection_problem([*PRIVATE, WORK, HOME / "Elsewhere"], good)
+    assert "outside its sandbox" in guard.protection_problem(PRIVATE, good.replace("sandbox_approval = false",
+                                                                                   "sandbox_approval = true"))
+    assert "default permissions" in guard.protection_problem(PRIVATE, good.replace('default_permissions = "gra-protected"',
+                                                                                    'default_permissions = ":workspace"'))
+    header = "[permissions.gra-protected.filesystem]\n"
+    reopened = good.replace(header, header + guard.toml_string(PRIVATE[0] / "sub") + ' = "read"\n')
+    assert "part of" in guard.protection_problem(PRIVATE, reopened)
+    assert "older sandbox_mode" in guard.protection_problem(PRIVATE, 'sandbox_mode = "read-only"\n' + good)
+    assert guard.protection_problem(None, good) and guard.protection_problem(PRIVATE, "")
+    home = Path.home()
+    assert guard.too_broad(home) and guard.too_broad(Path(home.anchor)) and not guard.too_broad(home / "Documents" / "x")
+
+
+def test_gra_stops_in_chatgpt_without_the_block(tmp_path, monkeypatch):
+    private = tmp_path / "GRA Private Data"
+    private.mkdir()
+    (private / "clients.csv").write_text("id,county\n1,North\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    c = Connector([private], output_root=tmp_path / "out", client=CHATGPT)
+    for name, args in (("find_files", {}), ("preview_data", {"data_files": [str(private / "clients.csv")]}),
+                       ("start_report", {"data_files": [str(private / "clients.csv")], "period_start": "2026-01-01",
+                                         "period_end": "2026-12-31"})):
+        text, err = c.call(name, args)
+        assert err and text.startswith("GRA stopped") and "North" not in text, (name, text)
+    ok, err = c.call("start_sample_report", {})  # the fictional sample needs no block
+    assert not err, ok
+    (tmp_path / "codex").mkdir()
+    from gra.connector import _runs_dir
+
+    (tmp_path / "codex" / "config.toml").write_text(
+        install.with_ours("", _block([private]), [private, _runs_dir()]), encoding="utf-8")
+    listed, err = c.call("find_files", {})
+    assert not err and "clients.csv" in listed
+    outside, err = c.call("find_files", {"folder": str(tmp_path)})
+    assert err and "private data folders" in outside
+    claude = Connector([tmp_path], output_root=tmp_path / "out")  # the Claude app has no such check
+    assert not claude.call("find_files", {"folder": str(private)})[1]
+
+
+def test_broken_settings_are_never_changed(tmp_path, monkeypatch):
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     (tmp_path / "codex").mkdir()
     (tmp_path / "codex" / "config.toml").write_text(EXISTING, encoding="utf-8")
@@ -152,8 +210,8 @@ def _env(tmp_path):
     return home, env
 
 
-def _run_as_chatgpt(server: dict, env: dict, tmp_path: Path) -> str:
-    """Start GRA the way ChatGPT does, from its settings, and make the sample report's calls."""
+def _run_as_chatgpt(server: dict, env: dict, tmp_path: Path, private: Path) -> str:
+    """Start GRA the way ChatGPT does, from its settings: list the private folder, then make the sample's calls."""
     proc = subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, env={**env, **server.get("env", {})}, cwd=str(tmp_path))
     try:
@@ -170,6 +228,8 @@ def _run_as_chatgpt(server: dict, env: dict, tmp_path: Path) -> str:
             r = _rpc(proc, i[0], "tools/call", {"name": name, "arguments": args})["result"]
             return r["content"][0]["text"], r["isError"]
 
+        listed, err = call("find_files", {})
+        assert not err and "export.csv" in listed and str(private) in listed, listed  # the block is in place
         text, err = call("start_sample_report", {})
         assert not err, text
         return replay(call)
@@ -177,6 +237,10 @@ def _run_as_chatgpt(server: dict, env: dict, tmp_path: Path) -> str:
         proc.stdin.close()
         proc.wait(timeout=30)
         proc.stdout.close()
+
+
+def _settings(home: Path) -> dict:
+    return tomllib.loads((home / ".codex" / "config.toml").read_text(encoding="utf-8"))
 
 
 def test_installer_from_the_source_folder(tmp_path):
@@ -197,32 +261,41 @@ def test_installer_from_the_source_folder(tmp_path):
     docs = tmp_path / "My Documents"
     cmd = [sys.executable, str(files / "install.py"), "--no-dialogs", "--install-dir", str(target),
            "--output-folder", str(docs)]
-    done = subprocess.run(cmd + ["--add-folder", str(drive)], env=env, capture_output=True, text=True, timeout=600)
+    done = subprocess.run(cmd + ["--add-folder", str(drive), "--add-folder", str(home)], env=env, capture_output=True,
+                          text=True, timeout=600)
     assert done.returncode == 0, done.stdout + done.stderr
-    text = (home / ".codex" / "config.toml").read_text(encoding="utf-8")
-    parsed = tomllib.loads(text)
+    parsed = _settings(home)
     assert parsed["mcp_servers"]["context7"]["command"] == "npx" and parsed["profiles"]["work"]["model"] == "other"
     server = parsed["mcp_servers"]["grant_reporting_assistant"]
     assert Path(server["args"][0]) == target / "server" / "main.py"
-    assert server["args"][server["args"].index("--allow") + 1:] == [str(home), str(drive.resolve())]
+    private = (docs / "GRA Private Data").resolve()
+    assert server["args"][server["args"].index("--allow") + 1:] == [str(private), str(drive.resolve())]  # not home
+    deny = parsed["permissions"]["gra-protected"]["filesystem"]
+    work = home / ".grant-reporting-assistant" / "chatgpt-work"
+    assert deny == {str(private): "deny", str(drive.resolve()): "deny", str(work): "deny"}
+    assert server["env"]["GRA_DATA_DIR"] == str(work)
     assert (home / ".codex" / "config.toml.gra-backup").read_text(encoding="utf-8") == EXISTING
 
-    reply = _run_as_chatgpt(server, env, tmp_path)
+    (private / "export.csv").write_text("id,county\n1,North\n", encoding="utf-8")
+    reply = _run_as_chatgpt(server, env, tmp_path, private)
     assert reply.startswith("Accepted.") and str(docs / "Grant Reporting Assistant") in reply
+    assert any(work.rglob("data.db"))  # the imported records live in the blocked work folder
 
     again = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=600)  # an update keeps the folders
     assert again.returncode == 0, again.stdout + again.stderr
-    assert install.allowed_before((home / ".codex" / "config.toml").read_text(encoding="utf-8")) == [home, drive.resolve()]
+    assert install.allowed_before((home / ".codex" / "config.toml").read_text(encoding="utf-8")) == [private,
+                                                                                                    drive.resolve()]
 
     gone = subprocess.run(cmd + ["--remove"], env=env, capture_output=True, text=True, timeout=120)
     assert gone.returncode == 0, gone.stdout + gone.stderr
     assert (home / ".codex" / "config.toml").read_text(encoding="utf-8") == EXISTING and not target.exists()
+    assert not work.exists() and (private / "export.csv").exists()
 
 
 @pytest.mark.skipif(os.environ.get("GRA_CONNECTOR_BUNDLE") != "1", reason="set GRA_CONNECTOR_BUNDLE=1 (needs internet)")
 def test_built_installer_works(tmp_path):
     """The released zip: its launcher finds Python, installs GRA with the bundled libraries and Word support, and
-    ChatGPT's settings start a working connector."""
+    ChatGPT's settings start a working connector behind its block."""
     sys.path.insert(0, str(ROOT / "tools"))
     from build_chatgpt import TOP, build
 
@@ -230,21 +303,24 @@ def test_built_installer_works(tmp_path):
     with zipfile.ZipFile(bundle) as z:
         names = set(z.namelist())
         assert {f"{TOP}/Install on Windows.bat", f"{TOP}/Install on Mac.command", f"{TOP}/files/install.py",
-                f"{TOP}/files/server/main.py", f"{TOP}/files/server/gra/connector.py"} <= names
+                f"{TOP}/files/server/main.py", f"{TOP}/files/server/gra/connector.py",
+                f"{TOP}/files/server/gra/chatgpt_guard.py"} <= names
         assert b"\r\n" in z.read(f"{TOP}/Install on Windows.bat")
         assert (z.getinfo(f"{TOP}/Install on Mac.command").external_attr >> 16) & 0o777 == 0o755
         z.extractall(tmp_path / "unzipped")
     folder = tmp_path / "unzipped" / TOP
     home, env = _env(tmp_path)
+    private = tmp_path / "private"
     if os.name == "nt":  # the Windows launcher finds a Python 3.11+ by itself
-        cmd = ["cmd", "/c", str(folder / "Install on Windows.bat"), "--no-dialogs"]
+        cmd = ["cmd", "/c", str(folder / "Install on Windows.bat")]
     else:  # and so does the Mac launcher
-        cmd = ["/bin/sh", str(folder / "Install on Mac.command"), "--no-dialogs"]
-    done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
+        cmd = ["/bin/sh", str(folder / "Install on Mac.command")]
+    done = subprocess.run(cmd + ["--no-dialogs", "--private-folder", str(private)], env=env, capture_output=True,
+                          text=True, timeout=900, stdin=subprocess.DEVNULL)
     assert done.returncode == 0, done.stdout + done.stderr
-    server = tomllib.loads((home / ".codex" / "config.toml").read_text(encoding="utf-8"))["mcp_servers"][
-        "grant_reporting_assistant"]
-    reply = _run_as_chatgpt(server, env, tmp_path)
+    (private / "export.csv").write_text("id,county\n1,North\n", encoding="utf-8")
+    server = _settings(home)["mcp_servers"]["grant_reporting_assistant"]
+    reply = _run_as_chatgpt(server, env, tmp_path, private.resolve())
     assert reply.startswith("Accepted.") and "grant-report-tables" in reply
 
 
@@ -290,7 +366,7 @@ def test_mac_home_is_restored_from_the_account():
 def test_settings_carry_the_home_folder(monkeypatch):
     for name in install.HOME_SETTINGS:
         monkeypatch.setenv(name, f"/x/{name}")
-    block = install.server_block("py", Path("m.py"), Path("d"), [Path("h")])
+    block = install.server_block("py", Path("m.py"), Path("d"), [Path("h")], Path("w"))
     env = tomllib.loads(block)["mcp_servers"][install.SERVER]["env"]
     for name in install.HOME_SETTINGS:
         assert env[name] == f"/x/{name}"

@@ -1,21 +1,26 @@
 """Installs Grant Reporting Assistant (GRA) for the ChatGPT desktop app, on Windows or a Mac.
 
 The ChatGPT desktop app runs local tools ("MCP servers") listed in its settings file,
-config.toml in the .codex folder of the user's home folder. This installer, started by
-"Install on Windows.bat" or "Install on Mac.command":
+config.toml in the .codex folder of the user's home folder. It can also run commands on the
+computer by itself, so this installer also uses that file to block ChatGPT's own commands
+from GRA's private data folders. Started by "Install on Windows.bat" or "Install on Mac.command":
 
 1. copies GRA's connector into this computer's app data folder;
 2. sets up Word support (a one-time download of the lxml library);
-3. asks which folders GRA may read (the home folder, plus any the user adds, such as a
-   Google Drive or shared drive folder; folders chosen before are kept);
-4. adds GRA to ChatGPT's settings file (only GRA's own section is changed, and a backup
-   of the file is kept next to it), then checks that GRA starts.
+3. makes the private data folder (Documents > GRA Private Data) and asks whether the user
+   keeps files in other folders that should be private too (folders chosen before are kept);
+4. writes ChatGPT's settings: a permissions profile that denies ChatGPT's commands any access
+   to those folders and to GRA's working files, an approval policy that turns down requests
+   to get around it, and GRA itself, which reads only those folders. Everything else in the
+   file is kept, a setting GRA replaces is kept as a comment and restored on removal, and a
+   backup of the file is kept next to it. Then it checks that GRA starts.
 
     python install.py            install or update
-    python install.py --remove   take GRA out of ChatGPT and delete the installed copy
+    python install.py --remove   take GRA and its settings out of ChatGPT and delete the installed copy
 
-Options for testing: --install-dir DIR, --output-folder DIR, --add-folder DIR (repeatable), --no-dialogs.
-CODEX_HOME, when set, is used instead of ~/.codex, as ChatGPT does.
+Options for testing: --install-dir DIR, --output-folder DIR, --private-folder DIR,
+--add-folder DIR (repeatable), --no-dialogs. CODEX_HOME, when set, is used instead of
+~/.codex, as ChatGPT does.
 """
 
 from __future__ import annotations
@@ -31,21 +36,27 @@ from pathlib import Path
 NAME = "Grant Reporting Assistant"
 SERVER = "grant_reporting_assistant"  # the section name in config.toml: [mcp_servers.grant_reporting_assistant]
 MARK = "# Grant Reporting Assistant for ChatGPT (added by its installer; run the installer again to change it)"
+PROFILE_MARK = "# Grant Reporting Assistant: keeps ChatGPT's own commands out of GRA's private data folders"
+TAG = "  # added by Grant Reporting Assistant"
+REPLACED = "# replaced by Grant Reporting Assistant: "
 HERE = Path(__file__).resolve().parent
 MIN_PYTHON = (3, 11)
-# The section's own lines start at its header and run to the next header that is not part of it.
-_OURS = re.compile(r'^\s*\[\s*mcp_servers\s*\.\s*(?:"grant_reporting_assistant"|grant_reporting_assistant)\s*(?:\.[^\]]*)?\]')
 _HEADER = re.compile(r"^\s*\[")
+# Sections GRA owns: its MCP server and its permissions profile, with their sub-tables.
+_OURS = re.compile(r'^\s*\[\s*(?:mcp_servers\s*\.\s*"?grant_reporting_assistant"?|permissions\s*\.\s*"?gra-protected"?)'
+                   r'\s*(?:\.[^\]]*)?\]')
+# Older sandbox settings that would make ChatGPT ignore the permissions profile.
+_LEGACY_TABLE = re.compile(r"^\s*\[\s*sandbox_workspace_write\s*\]")
+_TOP_KEY = re.compile(r"^\s*(default_permissions|sandbox_mode|approval_policy)\s*=")
+
+sys.path.insert(0, str(HERE / "server"))
+from gra import chatgpt_guard as guard  # noqa: E402  (the same checks GRA makes before reading files)
 
 
 # ---------------------------------------------------------------- where things go
 
-def codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-
-
 def config_path() -> Path:
-    return codex_home() / "config.toml"
+    return guard.config_path()
 
 
 def default_install_dir() -> Path:
@@ -82,12 +93,11 @@ def documents_folder() -> Path:
 
 # ---------------------------------------------------------------- ChatGPT's settings file
 
-def toml_string(s: str) -> str:
-    """A TOML basic string (JSON's string escapes are all valid TOML)."""
-    return json.dumps(str(s))
+def toml_string(s) -> str:
+    return json.dumps(str(s))  # JSON's string escapes are all valid TOML
 
 
-def server_block(python: str, main_py: Path, output: Path, allow: list[Path]) -> str:
+def server_block(python: str, main_py: Path, output: Path, allow: list[Path], work: Path) -> str:
     args = [str(main_py), "--client", "chatgpt", "--output", str(output), "--allow", *[str(a) for a in allow]]
     return "\n".join([
         MARK,
@@ -102,6 +112,7 @@ def server_block(python: str, main_py: Path, output: Path, allow: list[Path]) ->
         'PYTHONIOENCODING = "utf-8"',
         'PYTHONUTF8 = "1"',
         'PYTHONDONTWRITEBYTECODE = "1"',
+        f"GRA_DATA_DIR = {toml_string(work)}",
         # The ChatGPT app starts connectors with few settings; without these Python cannot find the user's folder.
         *[f"{name} = {toml_string(value)}" for name, value in home_settings().items()],
         "",
@@ -118,41 +129,52 @@ def home_settings() -> dict:
 
 
 def without_ours(text: str) -> str:
-    """The settings text with GRA's section (and its marker line) taken out; everything else unchanged."""
+    """The settings text as it was before GRA: GRA's sections and lines out, the settings it replaced back."""
     out, skipping = [], False
     for line in text.splitlines():
         if _OURS.match(line):
             skipping = True
-            if out and out[-1].strip() == MARK:
+            if out and out[-1].strip() in (MARK, PROFILE_MARK):
                 out.pop()
             continue
         if skipping and _HEADER.match(line):
             skipping = False
-        if skipping or line.strip() == MARK:
+        if skipping or line.strip() in (MARK, PROFILE_MARK) or line.endswith(TAG):
             continue
-        out.append(line)
+        out.append(line[len(REPLACED):] if line.startswith(REPLACED) else line)
     while out and not out[-1].strip():
         out.pop()
     return "\n".join(out) + ("\n" if out else "")
 
 
-def with_ours(text: str, block: str) -> str:
-    rest = without_ours(text)
-    return rest + ("\n" if rest else "") + block
-
-
-def parses(text: str) -> bool:
+def with_ours(text: str, block: str, private: list[Path]) -> str:
+    """Add GRA, its permissions profile and its approval policy, keeping the user's other settings."""
     import tomllib
 
-    try:
-        tomllib.loads(text)
-        return True
-    except tomllib.TOMLDecodeError:
-        return False
+    rest = without_ours(text)
+    cfg = tomllib.loads(rest) if rest.strip() else {}  # a broken file raises here and is left alone
+    previous = cfg.get("default_permissions")
+    parent = previous if isinstance(previous, str) and previous != ":danger-full-access" else ":workspace"
+    keep_policy = cfg.get("approval_policy") == "never"  # already never asks to get around the sandbox
+    lines, in_top, in_legacy = [], True, False
+    for line in rest.splitlines():
+        if _HEADER.match(line):
+            in_top = False
+            in_legacy = bool(_LEGACY_TABLE.match(line))
+        m = _TOP_KEY.match(line) if in_top else None
+        if in_legacy or (m and not (m.group(1) == "approval_policy" and keep_policy)):
+            line = REPLACED + line
+        lines.append(line)
+    top = [f'default_permissions = "{guard.PROFILE}"{TAG}']
+    if not keep_policy:
+        top.append(guard.approval_line() + TAG)
+    body = "\n".join(lines).rstrip("\n")
+    profile = "\n".join([PROFILE_MARK, *guard.profile_block(private, parent)])
+    return "\n".join(top) + "\n" + (body + "\n\n" if body else "\n") + profile + "\n" + block
 
 
 def current_settings(text: str) -> dict:
-    """GRA's section as it stands, if any."""
+    """GRA's server section as it stands, if any."""
     import tomllib
 
     try:
@@ -173,13 +195,23 @@ def allowed_before(text: str) -> list[Path]:
     return out
 
 
+def parses(text: str) -> bool:
+    import tomllib
+
+    try:
+        tomllib.loads(text)
+        return True
+    except tomllib.TOMLDecodeError:
+        return False
+
+
 def write_settings(new_text: str) -> Path:
     """Write ChatGPT's settings file, keeping a backup of the old one. Returns the file's path."""
     path = config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     old = path.read_text(encoding="utf-8") if path.exists() else ""
-    if old and parses(old) and not parses(new_text):
-        raise RuntimeError(f"Could not add GRA to {path} without breaking it, so it was left unchanged.")
+    if not parses(new_text):
+        raise RuntimeError(f"Could not change {path} without breaking it, so it was left unchanged.")
     if old:
         shutil.copy2(path, path.with_name(path.name + ".gra-backup"))
     tmp = path.with_name(path.name + ".gra-new")
@@ -246,15 +278,16 @@ def copy_connector(target: Path) -> Path:
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
     shutil.copytree(source, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    for extra in ("LICENSE",):
-        if (HERE / extra).exists():
-            shutil.copy2(HERE / extra, target / extra)
+    if (HERE / "LICENSE").exists():
+        shutil.copy2(HERE / "LICENSE", target / "LICENSE")
     return dest / "main.py"
 
 
-def server_env() -> dict:
+def server_env(work: Path | None = None) -> dict:
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV")}
     env.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
+    if work:
+        env["GRA_DATA_DIR"] = str(work)
     return env
 
 
@@ -264,15 +297,17 @@ def set_up_word(main_py: Path) -> bool:
     return done.returncode == 0
 
 
-def bare_env() -> dict:
+def bare_env(work: Path | None = None) -> dict:
     """Roughly the few settings the ChatGPT app gives a connector, so the check catches a missing home folder."""
     keep = ("PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "USERNAME", "LANG", "TERM")
     env = {k: v for k, v in os.environ.items() if k.upper() in keep}
     env.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
+    if work:
+        env["GRA_DATA_DIR"] = str(work)
     return env
 
 
-def check_starts(main_py: Path, output: Path, allow: list[Path]) -> str | None:
+def check_starts(main_py: Path, output: Path, allow: list[Path], work: Path) -> str | None:
     """Start the installed connector the way ChatGPT will and ask for its tools. Returns a problem, or None."""
     args = [sys.executable, str(main_py), "--client", "chatgpt", "--output", str(output), "--allow", *map(str, allow)]
     msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -282,7 +317,7 @@ def check_starts(main_py: Path, output: Path, allow: list[Path]) -> str | None:
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
     try:
         done = subprocess.run(args, input="".join(json.dumps(m) + "\n" for m in msgs).encode(), capture_output=True,
-                              env=bare_env(), timeout=120)
+                              env=bare_env(work), timeout=120)
         replies = [json.loads(line) for line in done.stdout.decode("utf-8", "replace").splitlines() if line.strip()]
         tools = {t["name"] for r in replies if r.get("id") == 2 for t in r["result"]["tools"]}
         if "start_report" in tools:
@@ -292,58 +327,82 @@ def check_starts(main_py: Path, output: Path, allow: list[Path]) -> str | None:
         return f"{type(e).__name__}: {e}"
 
 
-def install(install_dir: Path, extra: list[Path], dialogs: bool, output: Path | None = None) -> int:
+def choose_private_folders(ui: Ui, title: str, default: Path, before: list[Path], extra: list[Path],
+                           dialogs: bool) -> list[Path]:
+    """GRA's private data folders: the default one, the ones chosen before, and any the user adds now."""
+    folders = [default] + [p for p in before if p.is_dir() and not guard.too_broad(p)]
+    folders += [p.resolve() for p in extra if p.is_dir() and not guard.too_broad(p)]
+    while dialogs:
+        listed = "\n".join(f"  - {p}" for p in dict.fromkeys(folders))
+        if not ui.ask_yes_no(title, "Put your reports and data files in GRA's private data folder. GRA reads files "
+                             "only there, and ChatGPT itself will be blocked from opening them:\n\n" + listed +
+                             "\n\nDo you also keep report or data files in another folder that should be private, "
+                             "such as a Google Drive or shared drive folder?\n\nClick Yes to add a folder, or No to "
+                             "continue."):
+            break
+        chosen = ui.choose_folder("Choose a folder to keep private (only GRA may open it)")
+        if not chosen or not chosen.is_dir():
+            continue
+        if guard.too_broad(chosen):
+            ui.tell(title, f"{chosen} holds your whole home folder or drive, so blocking ChatGPT from it would stop "
+                    "ChatGPT from working. Choose the folder that holds the report and data files instead.", error=True)
+            continue
+        folders.append(chosen.resolve())
+    return list(dict.fromkeys(folders))
+
+
+def install(install_dir: Path, extra: list[Path], dialogs: bool, output: Path | None = None,
+            private: Path | None = None) -> int:
     ui = Ui(dialogs)
     title = f"{NAME} for ChatGPT"
     say(f"Installing {NAME} for the ChatGPT app...")
     settings = config_path()
     old_text = settings.read_text(encoding="utf-8") if settings.exists() else ""
+    if old_text and not parses(old_text):
+        ui.tell(title, f"The ChatGPT app's settings file ({settings}) has a mistake in it, so GRA did not change it. "
+                "Fix or remove that file, then run the installer again.", error=True)
+        return 1
 
     say("1. Copying GRA to " + str(install_dir))
     main_py = copy_connector(install_dir)
 
     say("2. Setting up Word support (a one-time download of about 5 MB; this can take a minute)")
-    word = set_up_word(main_py)
-    if not word:
+    if not set_up_word(main_py):
         say("   Word support could not be set up now. GRA will try again when it first starts, "
             "so check the internet connection.")
 
-    say("3. Choosing the folders GRA may read")
-    home = Path.home()
-    allow = [p for p in allowed_before(old_text) if p.is_dir()] or [home]
-    for p in extra:
-        if p.is_dir():
-            allow.append(p.resolve())
-    if dialogs:
-        while True:
-            listed = "\n".join(f"  - {p}" for p in allow)
-            if not ui.ask_yes_no(title, "GRA only opens reports and data files inside these folders:\n\n" + listed +
-                                 "\n\nAre your report and data files somewhere else too, such as a Google Drive or "
-                                 "shared drive folder (for example G:\\My Drive)?\n\nClick Yes to add a folder, or No "
-                                 "to continue."):
-                break
-            chosen = ui.choose_folder("Choose a folder GRA may read")
-            if chosen and chosen.is_dir():
-                allow.append(chosen.resolve())
-    allow = list(dict.fromkeys(allow))  # each folder once, in order
-    for p in allow:
-        say(f"   - {p}")
-
+    say("3. Choosing GRA's private data folders")
     output = output or documents_folder()
-    say("4. Adding GRA to the ChatGPT app's settings")
-    problem = check_starts(main_py, output, allow)
+    private = private or output / guard.PRIVATE_FOLDER
+    private.mkdir(parents=True, exist_ok=True)
+    folders = choose_private_folders(ui, title, private.resolve(), allowed_before(old_text), extra, dialogs)
+    for p in folders:
+        say(f"   - {p}")
+    work = guard.work_folder()
+    work.mkdir(parents=True, exist_ok=True)
+
+    say("4. Updating the ChatGPT app's settings")
+    problem = check_starts(main_py, output, folders, work)
     if problem:
         ui.tell(title, "GRA was copied, but it did not start, so the ChatGPT app's settings were not changed.\n\n"
                 + problem, error=True)
         return 1
-    path = write_settings(with_ours(old_text, server_block(sys.executable, main_py, output, allow)))
+    new_text = with_ours(old_text, server_block(sys.executable, main_py, output, folders, work), [*folders, work])
+    left = guard.protection_problem([*folders, work], new_text)
+    if left:  # never leave GRA in ChatGPT without its block
+        ui.tell(title, f"GRA could not set up ChatGPT's block ({left}), so the settings were not changed.", error=True)
+        return 1
+    path = write_settings(new_text)
     say(f"   Updated {path}" + (f" (the old one is kept as {path.name}.gra-backup)" if old_text else ""))
 
     ui.tell(title, f"{NAME} is installed for the ChatGPT app.\n\n"
+            f"Put your reports and data files in:\n{private}\n\n"
+            "GRA reads files only there (and in any other private folder you added), and ChatGPT itself is blocked "
+            "from opening them.\n\n"
             "Next:\n"
             "1. Quit the ChatGPT app completely, then open it again.\n"
             "2. Start a new chat and type: Run the Grant Reporting Assistant sample report.\n\n"
-            f"Finished reports are saved in {output / NAME}.")
+            f"Finished tables are saved in {output / NAME}.")
     return 0
 
 
@@ -352,13 +411,15 @@ def remove(install_dir: Path, dialogs: bool) -> int:
     path = config_path()
     if path.exists():
         text = path.read_text(encoding="utf-8")
-        if current_settings(text) or MARK in text:
-            write_settings(without_ours(text))
-            say(f"Took GRA out of {path}")
+        cleaned = without_ours(text)
+        if cleaned != text:
+            write_settings(cleaned)
+            say(f"Took GRA and its settings out of {path}")
     shutil.rmtree(install_dir, ignore_errors=True)
+    shutil.rmtree(guard.work_folder(), ignore_errors=True)
     say(f"Deleted {install_dir}")
     ui.tell(f"{NAME} for ChatGPT", f"{NAME} was removed from the ChatGPT app. Quit the ChatGPT app and open it "
-            "again to finish. Your saved reports in Documents were kept.")
+            "again to finish. Your files in GRA Private Data and your saved reports in Documents were kept.")
     return 0
 
 
@@ -369,22 +430,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remove", action="store_true", help="take GRA out of ChatGPT and delete the installed copy")
     parser.add_argument("--install-dir", type=Path, default=None)
     parser.add_argument("--output-folder", type=Path, default=None)
+    parser.add_argument("--private-folder", type=Path, default=None)
     parser.add_argument("--add-folder", type=Path, action="append", default=[])
     parser.add_argument("--no-dialogs", action="store_true")
     a = parser.parse_args(argv)
-    if sys.version_info < MIN_PYTHON:
-        say(f"{NAME} needs Python 3.11 or newer; this is Python {sys.version.split()[0]}. "
-            "Install the newest Python from https://www.python.org/downloads/ and run the installer again.")
-        return 1
     target = a.install_dir or default_install_dir()
     try:
         if a.remove:
             return remove(target, not a.no_dialogs)
-        return install(target, a.add_folder, not a.no_dialogs, a.output_folder)
+        return install(target, a.add_folder, not a.no_dialogs, a.output_folder, a.private_folder)
     except Exception as e:
         say(f"\nThe installer stopped: {type(e).__name__}: {e}")
         return 1
 
 
 if __name__ == "__main__":
+    if sys.version_info < MIN_PYTHON:
+        print(f"{NAME} needs Python 3.11 or newer; this is Python {sys.version.split()[0]}. "
+              "Install the newest Python from https://www.python.org/downloads/ and run the installer again.")
+        sys.exit(1)
     sys.exit(main())
