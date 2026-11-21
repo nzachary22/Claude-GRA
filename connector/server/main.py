@@ -16,6 +16,83 @@ import sys
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _known_folder(guid):
+    """A Windows known folder (such as the user's profile) asked of Windows itself, or None."""
+    try:
+        import ctypes
+        import uuid
+        from ctypes import wintypes
+
+        class GUID(ctypes.Structure):
+            _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+
+        f = uuid.UUID(guid).fields
+        b = uuid.UUID(guid).bytes
+        g = GUID(f[0], f[1], f[2], (ctypes.c_ubyte * 8)(*bytearray(b[8:])))
+        out = ctypes.c_wchar_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(g), 0, None, ctypes.byref(out)) == 0:
+            path = out.value
+            ctypes.windll.ole32.CoTaskMemFree(out)
+            if path and os.path.isdir(path):
+                return path
+    except Exception:
+        pass
+    return None
+
+
+def ensure_home_env(env=None, here=HERE):
+    """Fill in the home-folder settings a chat app may leave out when it starts GRA.
+
+    The ChatGPT app starts connectors with only a few settings, so on Windows USERPROFILE (the user's folder)
+    and LOCALAPPDATA can be missing and Python stops with "Could not determine home directory". Each missing
+    one is asked of Windows (or, elsewhere, of the user account), so GRA and the tools it starts find them.
+    Settings that are already there are never changed.
+    """
+    env = os.environ if env is None else env
+
+    def missing(name):
+        return not env.get(name)
+
+    if os.name == "nt":
+        if missing("USERPROFILE"):
+            home = None
+            if env.get("HOMEDRIVE") and env.get("HOMEPATH"):
+                home = env["HOMEDRIVE"] + env["HOMEPATH"]
+            home = home if home and os.path.isdir(home) else _known_folder("5E6C858F-0E22-4760-9AFE-EA3317B67173")
+            if not home:
+                # GRA is installed inside the user's folder: ...\<user>\AppData\Local\GrantReportingAssistant\...
+                low = here.lower()
+                cut = low.find("\\appdata\\")
+                if cut > 0:
+                    home = here[:cut]
+            if not home and env.get("USERNAME"):
+                home = os.path.join((env.get("SYSTEMDRIVE") or "C:") + "\\", "Users", env["USERNAME"])
+            if home:
+                env["USERPROFILE"] = home
+        home = env.get("USERPROFILE") or ""
+        folders = (("LOCALAPPDATA", "F1B32785-6FBA-4FCF-9D55-7B8E7F157091", ("AppData", "Local")),
+                   ("APPDATA", "3EB685DB-65F9-4CF6-A03A-E3EF65729F3D", ("AppData", "Roaming")))
+        for name, guid, parts in folders:
+            if missing(name):
+                found = _known_folder(guid) or (os.path.join(home, *parts) if home else None)
+                if found:
+                    env[name] = found
+        if env.get("LOCALAPPDATA"):
+            for name in ("TEMP", "TMP"):
+                if missing(name):
+                    env[name] = os.path.join(env["LOCALAPPDATA"], "Temp")
+    elif missing("HOME"):
+        try:
+            import pwd
+            env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            pass
+    return env
+
+
+ensure_home_env()
 sys.path[:0] = [HERE, os.path.join(HERE, "lib")]
 LXML = "lxml==6.1.3"
 MIN_PYTHON = (3, 11)

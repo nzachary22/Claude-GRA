@@ -246,3 +246,70 @@ def test_built_installer_works(tmp_path):
         "grant_reporting_assistant"]
     reply = _run_as_chatgpt(server, env, tmp_path)
     assert reply.startswith("Accepted.") and "grant-report-tables" in reply
+
+
+# ---------------------------------------------------------------- a chat app that leaves out the home folder
+
+main_spec = importlib.util.spec_from_file_location("gra_connector_main", ROOT / "connector" / "server" / "main.py")
+
+
+def _main_module():
+    mod = importlib.util.module_from_spec(main_spec)
+    main_spec.loader.exec_module(mod)
+    return mod
+
+
+def test_windows_home_is_restored_from_the_install_folder(monkeypatch):
+    main = _main_module()
+    monkeypatch.setattr(main.os, "name", "nt")
+    here = "C:\\Users\\Ana María\\AppData\\Local\\GrantReportingAssistant\\ChatGPT connector\\server"
+    env = main.ensure_home_env({"USERNAME": "ana", "PATH": "x"}, here=here)
+    assert env["USERPROFILE"] == "C:\\Users\\Ana María"
+    assert env["LOCALAPPDATA"].startswith("C:\\Users\\Ana María") and "Local" in env["LOCALAPPDATA"]
+    assert env["APPDATA"].endswith("Roaming") and env["TEMP"] == env["TMP"]
+    # settings that are there already are never changed
+    kept = main.ensure_home_env({"USERPROFILE": "D:\\me", "LOCALAPPDATA": "D:\\me\\L", "TEMP": "D:\\t"}, here=here)
+    assert kept["USERPROFILE"] == "D:\\me" and kept["LOCALAPPDATA"] == "D:\\me\\L" and kept["TEMP"] == "D:\\t"
+
+
+def test_windows_home_falls_back_to_the_user_name(monkeypatch):
+    main = _main_module()
+    monkeypatch.setattr(main.os, "name", "nt")
+    env = main.ensure_home_env({"USERNAME": "nzach", "SYSTEMDRIVE": "C:"}, here="E:\\portable\\server")
+    assert env["USERPROFILE"].replace("/", "\\").startswith("C:\\") and env["USERPROFILE"].endswith("nzach")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the POSIX account lookup")
+def test_mac_home_is_restored_from_the_account():
+    import pwd
+
+    main = _main_module()
+    assert main.ensure_home_env({"PATH": "/usr/bin"})["HOME"] == pwd.getpwuid(os.getuid()).pw_dir
+
+
+def test_settings_carry_the_home_folder(monkeypatch):
+    for name in install.HOME_SETTINGS:
+        monkeypatch.setenv(name, f"/x/{name}")
+    block = install.server_block("py", Path("m.py"), Path("d"), [Path("h")])
+    env = tomllib.loads(block)["mcp_servers"][install.SERVER]["env"]
+    for name in install.HOME_SETTINGS:
+        assert env[name] == f"/x/{name}"
+
+
+def test_connector_starts_without_a_home_folder(tmp_path):
+    """Start the connector the way ChatGPT does, with almost no settings, and ask for its tools."""
+    env = {"PATH": os.environ.get("PATH", ""), "GRA_DATA_DIR": str(tmp_path / "appdata"), "PYTHONUTF8": "1"}
+    for name in ("SYSTEMROOT", "SYSTEMDRIVE", "USERNAME"):
+        if os.environ.get(name):
+            env[name] = os.environ[name]
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
+             "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex-mcp-client"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    done = subprocess.run([sys.executable, str(ROOT / "connector" / "server" / "main.py"), "--client", "chatgpt",
+                           "--output", str(tmp_path / "out"), "--allow", str(tmp_path)],
+                          input="".join(json.dumps(m) + "\n" for m in msgs).encode(), capture_output=True, env=env,
+                          timeout=120)
+    replies = [json.loads(line) for line in done.stdout.decode().splitlines() if line.strip()]
+    tools = {t["name"] for r in replies if r.get("id") == 2 for t in r["result"]["tools"]}
+    assert "start_report" in tools, done.stderr.decode()[-2000:]

@@ -102,8 +102,19 @@ def server_block(python: str, main_py: Path, output: Path, allow: list[Path]) ->
         'PYTHONIOENCODING = "utf-8"',
         'PYTHONUTF8 = "1"',
         'PYTHONDONTWRITEBYTECODE = "1"',
+        # The ChatGPT app starts connectors with few settings; without these Python cannot find the user's folder.
+        *[f"{name} = {toml_string(value)}" for name, value in home_settings().items()],
         "",
     ])
+
+
+HOME_SETTINGS = ("USERPROFILE", "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP") if os.name == "nt" \
+    else ("HOME",)
+
+
+def home_settings() -> dict:
+    """This computer's home-folder settings, written into ChatGPT's settings so GRA always gets them."""
+    return {name: os.environ[name] for name in HOME_SETTINGS if os.environ.get(name)}
 
 
 def without_ours(text: str) -> str:
@@ -253,6 +264,14 @@ def set_up_word(main_py: Path) -> bool:
     return done.returncode == 0
 
 
+def bare_env() -> dict:
+    """Roughly the few settings the ChatGPT app gives a connector, so the check catches a missing home folder."""
+    keep = ("PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "USERNAME", "LANG", "TERM")
+    env = {k: v for k, v in os.environ.items() if k.upper() in keep}
+    env.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1")
+    return env
+
+
 def check_starts(main_py: Path, output: Path, allow: list[Path]) -> str | None:
     """Start the installed connector the way ChatGPT will and ask for its tools. Returns a problem, or None."""
     args = [sys.executable, str(main_py), "--client", "chatgpt", "--output", str(output), "--allow", *map(str, allow)]
@@ -263,7 +282,7 @@ def check_starts(main_py: Path, output: Path, allow: list[Path]) -> str | None:
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
     try:
         done = subprocess.run(args, input="".join(json.dumps(m) + "\n" for m in msgs).encode(), capture_output=True,
-                              env=server_env(), timeout=120)
+                              env=bare_env(), timeout=120)
         replies = [json.loads(line) for line in done.stdout.decode("utf-8", "replace").splitlines() if line.strip()]
         tools = {t["name"] for r in replies if r.get("id") == 2 for t in r["result"]["tools"]}
         if "start_report" in tools:
