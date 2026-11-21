@@ -1,0 +1,30 @@
+Grant Reporting Assistant for the ChatGPT app
+=============================================
+
+You need the ChatGPT desktop app (Windows or Mac) and Python 3.11 or newer.
+The full guide with pictures of each step: https://github.com/nzachary22/Claude-GRA/blob/main/connector/CHATGPT.md
+
+Install (once)
+- Quit the ChatGPT app.
+- Windows: double-click "Install on Windows.bat".
+  If Windows says "Windows protected your PC", click "More info", then "Run anyway".
+- Mac: right-click "Install on Mac.command" and choose "Open", then click "Open" again.
+  If the Mac still refuses, open System Settings > Privacy & Security, scroll down and click "Open Anyway".
+- When it asks whether your files are somewhere else too (such as Google Drive), click Yes to choose
+  that folder, or No.
+- When it says it is installed, open the ChatGPT app again.
+
+Try it
+- Start a new chat in the ChatGPT app and type: Run the Grant Reporting Assistant sample report.
+- The finished tables appear in the chat. The Word and Excel files, and an AI activity report,
+  are saved in Documents > Grant Reporting Assistant.
+
+Your own report
+- Put your past report and data files in one folder, then type something like:
+  Use Grant Reporting Assistant to rebuild my 2025 report for January 1 to December 31, 2026.
+  The files are in (paste the folder location).
+- Never attach data files to the chat. Give ChatGPT only the folder location.
+- If ChatGPT ever asks you to approve a command or file read that mentions your data files, click Deny.
+
+To add a folder later, run the installer again. To remove GRA, open the Uninstall folder and run
+the file for your computer.

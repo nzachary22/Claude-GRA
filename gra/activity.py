@@ -99,6 +99,8 @@ def service_names(start: dict) -> tuple[str, str]:
         return "None (recorded demo with fictional data; nothing was sent to any AI service)", "AI service"
     if start.get("provider") == "claude-app":
         return "Anthropic Claude, in the Claude app with the user's own Claude login (no API key)", "Anthropic"
+    if start.get("provider") == "chatgpt-app":
+        return "OpenAI ChatGPT, in the ChatGPT app with the user's own ChatGPT login (no API key)", "OpenAI"
     if start.get("provider") == "openai":
         if start.get("stored") is False:
             return "OpenAI (requests sent with storage turned off)", "OpenAI"

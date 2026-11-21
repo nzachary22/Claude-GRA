@@ -1,6 +1,6 @@
 """A small Model Context Protocol (MCP) server over standard input and output.
 
-The Claude app starts the connector as a local program and talks to it with
+The Claude app or the ChatGPT app starts the connector as a local program and talks to it with
 JSON-RPC messages, one per line. Only the parts of MCP the connector uses are
 here: the handshake, listing tools and calling them. It uses the standard
 library only, and older Python syntax, so it can still start (and explain the
@@ -16,11 +16,13 @@ PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 
 
 class ToolServer(object):
-    """name, version and instructions describe the server; tools() lists tool definitions
-    (MCP form: name, description, inputSchema); call(name, args) returns (text, is_error)."""
+    """name, version and instructions describe the server (instructions may be a function, asked after
+    on_initialize(params) has seen the handshake); tools() lists tool definitions (MCP form: name,
+    description, inputSchema); call(name, args) returns (text, is_error)."""
 
-    def __init__(self, name, version, instructions, tools, call):
+    def __init__(self, name, version, instructions, tools, call, on_initialize=None):
         self.name = name
+        self.on_initialize = on_initialize
         self.version = version
         self.instructions = instructions
         self.tools = tools
@@ -63,12 +65,15 @@ class ToolServer(object):
             return None
         try:
             if method == "initialize":
+                if self.on_initialize:
+                    self.on_initialize(params)
+                instructions = self.instructions() if callable(self.instructions) else self.instructions
                 asked = params.get("protocolVersion")
                 version = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
                 result = {"protocolVersion": version,
                           "capabilities": {"tools": {"listChanged": False}},
                           "serverInfo": {"name": self.name, "version": self.version},
-                          "instructions": self.instructions}
+                          "instructions": instructions}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":

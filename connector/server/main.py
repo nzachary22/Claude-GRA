@@ -1,11 +1,13 @@
-"""Starts the Grant Reporting Assistant connector for the Claude app.
+"""Starts the Grant Reporting Assistant connector for the Claude app or the ChatGPT app.
 
-The Claude app runs this file with the computer's Python. It puts the bundled
+The chat app runs this file with the computer's Python. It puts the bundled
 app code and libraries on the path, checks the Python version, sets up Word
 support (the lxml library, downloaded once for this computer) in the
 background, and then serves the connector's tools over standard input and
 output. Written for old Python versions too, so a too-old Python still gets a
 plain explanation in the chat instead of a silent failure.
+
+    main.py --setup   sets up Word support now and exits (the ChatGPT installer runs this once).
 """
 
 import os
@@ -87,15 +89,29 @@ def too_old():
     from gra.mcp_stdio import ToolServer
 
     found = "%d.%d" % sys.version_info[:2]
-    text = ("Grant Reporting Assistant needs Python %d.%d or newer, but the Claude app started Python %s (%s). "
+    text = ("Grant Reporting Assistant needs Python %d.%d or newer, but the chat app started Python %s (%s). "
             "Install the newest Python from https://www.python.org/downloads/ (on Windows, tick 'Add python.exe "
-            "to PATH'), then quit and reopen the Claude app." % (MIN_PYTHON + (found, sys.executable)))
+            "to PATH'), then quit and reopen the Claude or ChatGPT app." % (MIN_PYTHON + (found, sys.executable)))
     tool = {"name": "setup_problem", "description": "Explains why Grant Reporting Assistant cannot start yet.",
             "inputSchema": {"type": "object", "properties": {}}}
     ToolServer("grant-reporting-assistant", "setup", text, lambda: [tool], lambda name, args: (text, True)).serve()
 
 
+def setup():
+    """Set up Word support now, waiting for it; exit status 0 when it is ready."""
+    word = WordSupport()
+    if os.path.isdir(word.target):
+        sys.path.append(word.target)
+    word.ok = word._importable()
+    if not word.ok:
+        word._install()
+    sys.exit(0 if word.ok else 1)
+
+
 def main():
+    if "--setup" in sys.argv[1:]:
+        setup()
+        return
     if sys.version_info < MIN_PYTHON:
         too_old()
         return
