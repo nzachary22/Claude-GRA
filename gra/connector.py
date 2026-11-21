@@ -22,6 +22,7 @@ next to the Word and Excel files saved on this computer, which both always get.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import sys
@@ -849,14 +850,14 @@ def main(argv: list[str] | None = None, word_ready=None):
     """Run the connector over standard input and output, as the Claude app or the ChatGPT app starts it.
 
     Arguments: --output FOLDER (reports are saved in its "Grant Reporting Assistant" folder), --allow FOLDER
-    [FOLDER ...] (folders it may read) and --client claude|chatgpt (the chat app; without it, the app named in
+    [FOLDER ...] (folders it may read), --work FOLDER (working databases) and --client claude|chatgpt (the chat app; without it, the app named in
     the MCP handshake, else Claude)."""
     from .mcp_stdio import ToolServer
 
     argv = list(sys.argv[1:] if argv is None else argv)
     output, roots, mode, client = None, [], None, None
     for a in argv:
-        if a in ("--output", "--allow", "--client"):
+        if a in ("--output", "--allow", "--client", "--work"):
             mode = a
         elif mode == "--output" and output is None and a.strip() and "${" not in a:
             output = a
@@ -864,6 +865,11 @@ def main(argv: list[str] | None = None, word_ready=None):
             roots.append(Path(a))
         elif mode == "--client" and client is None:
             client = CLIENTS.get(a.strip().lower())
+            mode = None
+        elif mode == "--work" and a.strip():
+            # Where each report's working database goes. Given on the command line because a chat app may
+            # not pass on the env settings it was given for the connector (the ChatGPT app on Windows didn't).
+            os.environ["GRA_DATA_DIR"] = a
             mode = None
     connector = Connector(roots or None, Path(output) / "Grant Reporting Assistant" if output else None, word_ready,
                           client=client or CLAUDE, fixed_client=client is not None)

@@ -101,7 +101,8 @@ def toml_string(s) -> str:
 
 
 def server_block(python: str, main_py: Path, output: Path, allow: list[Path], work: Path) -> str:
-    args = [str(main_py), "--client", "chatgpt", "--output", str(output), "--allow", *[str(a) for a in allow]]
+    args = [str(main_py), "--client", "chatgpt", "--output", str(output), "--work", str(work),
+            "--allow", *[str(a) for a in allow]]
     return "\n".join([
         MARK,
         f"[mcp_servers.{SERVER}]",
@@ -319,7 +320,8 @@ def bare_env(work: Path | None = None) -> dict:
 
 def check_starts(main_py: Path, output: Path, allow: list[Path], work: Path) -> str | None:
     """Start the installed connector the way ChatGPT will and ask for its tools. Returns a problem, or None."""
-    args = [sys.executable, str(main_py), "--client", "chatgpt", "--output", str(output), "--allow", *map(str, allow)]
+    args = [sys.executable, str(main_py), "--client", "chatgpt", "--output", str(output), "--work", str(work),
+            "--allow", *map(str, allow)]
     msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                         "clientInfo": {"name": "gra-installer-check", "version": "1"}}},

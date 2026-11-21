@@ -214,9 +214,11 @@ def _env(tmp_path):
 
 
 def _run_as_chatgpt(server: dict, env: dict, tmp_path: Path, private: Path) -> str:
-    """Start GRA the way ChatGPT does, from its settings: list the private folder, then make the sample's calls."""
+    """Start GRA the way ChatGPT does, from its settings (command and arguments only): list the private folder,
+    then make the sample's calls."""
     proc = subprocess.Popen([server["command"], *server["args"]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, env={**env, **server.get("env", {})}, cwd=str(tmp_path))
+                            stderr=subprocess.DEVNULL, env={k: v for k, v in env.items() if k != "GRA_DATA_DIR"},
+                            cwd=str(tmp_path))  # ChatGPT on Windows did not pass on the settings' env table
     try:
         init = _rpc(proc, 1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                             "clientInfo": {"name": "codex-mcp-client", "version": "1"}})
