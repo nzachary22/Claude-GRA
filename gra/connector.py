@@ -42,7 +42,7 @@ MAX_LISTED = 300
 
 DELIVERY_RULES = """Delivering the finished tables (do this by default, without asking):
 1. Call get_doc_and_sheet. It returns the finished tables twice, ready to use: as a Claude doc (a title and Markdown) and as a Claude sheet (a title and the cells of each tab).
-2. Make the Claude doc with Claude's own docs feature (the Claude Docs connector): use the given title, and put the given Markdown in it as written. Copy every table, figure and note exactly; never retype, round, recalculate, reorder or leave out a figure.
+2. Make the Claude doc with Claude's own docs feature (the Claude Docs connector): use the given title and tab name, and put the given Markdown in it as written. Copy every table, figure and note exactly; never retype, round, recalculate, reorder or leave out a figure.
 3. Make the Claude sheet with Claude's own Sheets feature (an artifact of the Sheets type, whose cells are written through the Claude Docs connector): use the given title, one tab per entry in "tabs", in order, with the tab's name. Write each tab's "rows" from cell A1 exactly as given: every value is already written the way the sheet reads it, so numbers, percents and dollar amounts come out as numbers and text stays text. Then declare each tab's table (its header row and, if listed, its total rows as the footer), make "bold_rows" bold, wrap the Notes tab's long text and fit the columns. Send no more than about 4,000 cells in one update.
 4. In the chat, give the links to the doc and the sheet, say where the Word and Excel files were saved on this computer, and list the "Some considerations to check" items, if any, each with its question and options. Do not repeat the full tables in the chat once the doc holds them.
 - After a correction, update the same doc and sheet with the new get_doc_and_sheet content instead of making new ones: replace the doc's content, and rewrite each tab (clear cells that no longer hold anything). If that fails, make new ones and say so.
@@ -543,7 +543,7 @@ def claude_doc(s: ReportSession) -> dict:
     _, _, rest = results_markdown(s).partition("\n")  # the doc's title replaces the first heading
     lead, _, body = rest.partition("\n\n")  # the lines under the title, each its own paragraph
     body = re.sub(r"^### ", "## ", body, flags=re.M)
-    return {"title": title, "markdown": "\n\n".join([f"# {title}", *lead.splitlines(), body])}
+    return {"title": title, "tab_name": "Tables", "markdown": "\n\n".join([f"# {title}", *lead.splitlines(), body])}
 
 
 def claude_sheet(s: ReportSession) -> dict:
@@ -592,7 +592,8 @@ def claude_sheet(s: ReportSession) -> dict:
     for n in sorted(notes, key=lambda n: not n.key):
         affected = "; ".join(t.title for t in s.tables if t.id in n.tables) or "All tables"
         kind = f"consideration ({n.kind})" if n.key else n.kind
-        rows.append([_text(kind), _text(n.text + (" " + n.question if n.key and n.question else "")),
+        rows.append([_text(kind), _text(n.text + (" " + n.question if n.key and n.question else "")
+                           + ("".join(f" Option: {o['label']}." for o in n.options) if n.key else "")),
                      _text(affected), _text(n.how_to_change)])
     tabs.append({"name": "Notes", "rows": _rect(rows, 4),
                  "table": {"header_row": 4, "last_row": max(4, len(rows)), "columns": "A:D", "total_rows": []},
