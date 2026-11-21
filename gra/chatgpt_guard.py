@@ -109,6 +109,9 @@ def protection_problem(roots: list[Path] | None, text: str | None = None) -> str
             return f"ChatGPT is not blocked from {root}"
         if any(v != "deny" for p, v in entries if inside(p, root) and norm(p) != norm(root)):
             return f"ChatGPT may open part of {root}"
+    if os.name == "nt" and (cfg.get("features") or {}).get("prefer_mxc") is not True:
+        # Windows' older sandbox does not keep commands from reading files; its process isolation (MXC) does.
+        return "ChatGPT's Windows isolation (prefer_mxc) is off, so its sandbox doesn't enforce the block"
     policy = cfg.get("approval_policy")
     granular = policy.get("granular") if isinstance(policy, dict) else None
     if policy != "never" and not (isinstance(granular, dict) and granular.get("sandbox_approval") is False

@@ -47,6 +47,9 @@ _OURS = re.compile(r'^\s*\[\s*(?:mcp_servers\s*\.\s*"?grant_reporting_assistant"
                    r'\s*(?:\.[^\]]*)?\]')
 # Older sandbox settings that would make ChatGPT ignore the permissions profile.
 _LEGACY_TABLE = re.compile(r"^\s*\[\s*sandbox_workspace_write\s*\]")
+_FEATURES = re.compile(r"^\s*\[\s*features\s*\]")
+_MXC = re.compile(r"^\s*prefer_mxc\s*=")
+MXC_LINE = "prefer_mxc = true"
 _TOP_KEY = re.compile(r"^\s*(default_permissions|sandbox_mode|approval_policy)\s*=")
 
 sys.path.insert(0, str(HERE / "server"))
@@ -156,15 +159,22 @@ def with_ours(text: str, block: str, private: list[Path]) -> str:
     previous = cfg.get("default_permissions")
     parent = previous if isinstance(previous, str) and previous != ":danger-full-access" else ":workspace"
     keep_policy = cfg.get("approval_policy") == "never"  # already never asks to get around the sandbox
-    lines, in_top, in_legacy = [], True, False
+    lines, in_top, in_legacy, in_features = [], True, False, False
+    has_features = isinstance(cfg.get("features"), dict)
     for line in rest.splitlines():
         if _HEADER.match(line):
             in_top = False
             in_legacy = bool(_LEGACY_TABLE.match(line))
+            in_features = bool(_FEATURES.match(line))
         m = _TOP_KEY.match(line) if in_top else None
-        if in_legacy or (m and not (m.group(1) == "approval_policy" and keep_policy)):
+        if in_legacy or (m and not (m.group(1) == "approval_policy" and keep_policy)) or \
+                (in_features and _MXC.match(line)):
             line = REPLACED + line
         lines.append(line)
+        if in_features and _FEATURES.match(line):
+            lines.append(MXC_LINE + TAG)  # Windows: the isolation that enforces "deny" (see chatgpt_guard)
+    if not has_features:
+        lines += ["", "[features]" + TAG, MXC_LINE + TAG]
     top = [f'default_permissions = "{guard.PROFILE}"{TAG}']
     if not keep_policy:
         top.append(guard.approval_line() + TAG)

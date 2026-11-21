@@ -126,6 +126,7 @@ def test_settings_keep_everything_else_and_block_chatgpt():
     assert parsed["default_permissions"] == "gra-protected"
     assert parsed["permissions"]["gra-protected"]["extends"] == ":workspace"
     assert parsed["approval_policy"]["granular"]["sandbox_approval"] is False
+    assert parsed["features"]["prefer_mxc"] is True  # Windows isolation that enforces "deny"
     ours = parsed["mcp_servers"]["grant_reporting_assistant"]
     assert ours["command"] == "C:\\Python313\\python.exe" and ours["args"][1:3] == ["--client", "chatgpt"]
     assert ours["env"]["GRA_DATA_DIR"] == str(WORK) and ours["tool_timeout_sec"] >= 600
@@ -159,6 +160,8 @@ def test_gaps_in_the_block_are_found():
     reopened = good.replace(header, header + guard.toml_string(PRIVATE[0] / "sub") + ' = "read"\n')
     assert "part of" in guard.protection_problem(PRIVATE, reopened)
     assert "older sandbox_mode" in guard.protection_problem(PRIVATE, 'sandbox_mode = "read-only"\n' + good)
+    if os.name == "nt":
+        assert "prefer_mxc" in guard.protection_problem(PRIVATE, good.replace("prefer_mxc = true", "prefer_mxc = false"))
     assert guard.protection_problem(None, good) and guard.protection_problem(PRIVATE, "")
     home = Path.home()
     assert guard.too_broad(home) and guard.too_broad(Path(home.anchor)) and not guard.too_broad(home / "Documents" / "x")
