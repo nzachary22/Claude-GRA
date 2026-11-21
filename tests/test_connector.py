@@ -109,7 +109,7 @@ def test_preview_and_find_files(tmp_path):
     text, err = c.call("find_files", {"folder": str(SAMPLE)})
     assert not err and "clients.csv (data," in text and "Juniper Ridge 2025 annual report.pdf (report" in text
     text, err = c.call("preview_data", {"data_files": [str(SAMPLE / n) for n in SAMPLE_DATA]})
-    assert not err and "Kept on this computer" in text
+    assert not err and "The AI never sees these" in text and "stay on this computer" in text
     assert not list((Path(os.environ["GRA_DATA_DIR"]) / "connector-runs").glob("preview-*"))  # preview leaves nothing
 
 

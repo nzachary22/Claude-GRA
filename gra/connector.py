@@ -204,17 +204,18 @@ class Connector:
             raise UserError(f"Could not read the data files: {e}") from None
         finally:
             shutil.rmtree(folder, ignore_errors=True)
-        lines = ["What GRA would do with these files (no records are shown):", "",
+        lines = ["What GRA would do with these files (no records are shown). Your data files stay on this computer, "
+                 "and the counting happens here. The AI only gets what is described below.", "",
                  "Files: " + "; ".join(f"{f['file']} ({f['rows']:,} rows)" for f in g["files"]), "",
-                 "Kept on this computer, never shared (IDs, names, personal details and notes):"]
+                 "The AI never sees these (IDs, names, personal details and notes):"]
         lines += [f"- {k['header']} ({k['file']}): {k['why']}" for k in g["kept"]] or ["- none"]
-        lines += ["", "Shared only as a list of possible answers, for counting:"]
+        lines += ["", "The AI sees the list of possible answers, for counting:"]
         lines += [f"- {x['header']} ({x['file']}): {x['count']} values, e.g. {', '.join(x['examples'][:4])}"
                   for x in g["listed"]] or ["- none"]
-        lines += ["", "Shared only as totals and ranges (dates, amounts, other columns):"]
+        lines += ["", "The AI sees totals and ranges only (dates, amounts, other columns):"]
         lines += [f"- {x['header']} ({x['file']})" for x in g["totals"]] or ["- none"]
         if g["code_lists"]:
-            lines += ["", "Code lists shared in full (they hold no client information):"]
+            lines += ["", "The AI sees these code lists in full (they hold no client information):"]
             lines += [f"- {c['file']} ({c['rows']} rows)" for c in g["code_lists"]]
         return "\n".join(lines), False
 
