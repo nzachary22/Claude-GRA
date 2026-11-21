@@ -33,7 +33,7 @@ Your chats with GRA contain report tables (totals, never client records). If you
 1. Start a **new chat** in the Claude app.
 2. Type: **Run the Grant Reporting Assistant sample report.**
 3. Claude asks permission the first time it uses each GRA tool. Click **Always allow** (or **Allow**).
-4. In a few minutes Claude shows the finished tables of a made-up legal aid society's report and tells you where the Word and Excel files were saved.
+4. In a few minutes Claude puts the finished tables of a made-up legal aid society's report in a **Claude doc** and a **Claude sheet**, gives you their links, and tells you where the Word and Excel files were saved on your computer.
 
 ## Prepare your own report
 
@@ -45,8 +45,8 @@ Your chats with GRA contain report tables (totals, never client records). If you
 
    > Use Grant Reporting Assistant to rebuild the tables in my 2025 report for January 1 to December 31, 2026. The report and data files are in *(paste the folder location)*.
 
-4. Claude lists the files, starts the report, runs GRA's privacy-checked counts and shows you the finished tables. The Word and Excel files, an **AI activity report** (what Claude was shown) and, when something was missing, a **data collection guide** are saved in **Documents > Grant Reporting Assistant**, in a folder named after the report.
-5. If Claude lists **Some considerations to check**, answer them in the chat, or ask for any other change ("count only closed cases", "use the intake date"). GRA recalculates and saves the files again.
+4. Claude lists the files, starts the report, runs GRA's privacy-checked counts and puts the finished tables in a **Claude doc** and a **Claude sheet** (both hold only the finished tables and notes, which are totals, never client records). If Claude docs and sheets aren't available in your Claude app, Claude shows the tables in the chat instead. The Word and Excel files, an **AI activity report** (what Claude was shown) and, when something was missing, a **data collection guide** are saved in **Documents > Grant Reporting Assistant**, in a folder named after the report.
+5. If Claude lists **Some considerations to check**, answer them in the chat, or ask for any other change ("count only closed cases", "use the intake date"). GRA recalculates, Claude updates the same doc and sheet, and GRA saves the files again.
 
 To check first what GRA keeps private and what it shares, ask: **Use Grant Reporting Assistant to preview my data files in *(folder)*.**
 

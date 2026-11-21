@@ -40,20 +40,31 @@ MAX_TEXT_CHARS = 400_000
 KEEP_RUNS = 5
 MAX_LISTED = 300
 
+DELIVERY_RULES = """Delivering the finished tables (do this by default, without asking):
+1. Call get_doc_and_sheet. It returns the finished tables twice, ready to use: as a Claude doc (a title and Markdown) and as a Claude sheet (a title and the cells of each tab).
+2. Make the Claude doc with Claude's own docs feature (the Claude Docs connector): use the given title and tab name, and put the given Markdown in it as written. Copy every table, figure and note exactly; never retype, round, recalculate, reorder or leave out a figure.
+3. Make the Claude sheet with Claude's own Sheets feature (an artifact of the Sheets type, whose cells are written through the Claude Docs connector): use the given title, one tab per entry in "tabs", in order, with the tab's name. Write each tab's "rows" from cell A1 exactly as given: every value is already written the way the sheet reads it, so numbers, percents and dollar amounts come out as numbers and text stays text. Then declare each tab's table (its header row and, if listed, its total rows as the footer), make "bold_rows" bold, wrap the Notes tab's long text and fit the columns. Send no more than about 4,000 cells in one update.
+4. In the chat, give the links to the doc and the sheet, say where the Word and Excel files were saved on this computer, and list the "Some considerations to check" items, if any, each with its question and options. Do not repeat the full tables in the chat once the doc holds them.
+- After a correction, update the same doc and sheet with the new get_doc_and_sheet content instead of making new ones: replace the doc's content, and rewrite each tab (clear cells that no longer hold anything). If that fails, make new ones and say so.
+- If Claude docs or Claude sheets are not available in this chat (no Claude Docs connector, or it refuses), skip what cannot be made without retrying, show the finished tables in the chat exactly as the submit_tables reply gives them, and say once that the same tables are in the Word and Excel files on this computer.
+- The doc and the sheet hold only what get_doc_and_sheet returns: the finished tables and notes, which are totals, never client records. Add nothing else from the data to them."""
+
 CHAT_RULES = """You are working in the user's Claude chat with the Grant Reporting Assistant (GRA) connector. GRA keeps the organization's client data on this computer: it imports the data files into a local database and lets you see only a non-identifying description of the data and aggregate query results. You act as GRA's reporting analyst. Follow GRA's rules below exactly, using the connector's tools run_query, note_assumption and submit_tables.
 
 Working in the chat:
 - Never ask the user to paste, attach or upload client data, and never open, read or analyze the data files with any other tool or connector (file readers, code execution, computer use or a browser). Only GRA's tools may touch them. If client records appear in the chat anyway, do not repeat or use them, and tell the user once that GRA keeps records private only when the files are given to GRA by their location on the computer.
 - Once the report is started, work through every table without stopping to check in with the user, then submit them all. Mention briefly what you are doing as you go.
-- When the tables are accepted, the connector saves the Word and Excel files and replies with the finished tables. Show the user those tables exactly as the reply gives them (copy them; never retype, round or recalculate a figure), where the files were saved, and the "Some considerations to check" items, if any, each with its question and options.
-- When the user answers a consideration or asks for a change, treat it as the user's correction: apply it, re-run only the queries it affects, update or remove the related notes, and submit the tables that change. The connector saves the files again each time.
+- When the tables are accepted, the connector saves the Word and Excel files on this computer and replies with the finished tables. Then deliver them as a Claude doc and a Claude sheet, as described after these rules.
+- When the user answers a consideration or asks for a change, treat it as the user's correction: apply it, re-run only the queries it affects, update or remove the related notes, and submit the tables that change. The connector saves the files again each time, and you update the same Claude doc and Claude sheet (see above).
 - In the rules below, "the app" means GRA working through these tools, and "uploaded" documents are the ones the user gave to start_report.
+
+""" + DELIVERY_RULES + """
 
 GRA's rules:
 
 """
 
-INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. Never open, read or analyze the user's client data files with any other tool; only GRA's tools may touch them."""
+INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. When the tables are done, get_doc_and_sheet gives them ready to deliver as a Claude doc and a Claude sheet, the default way to show the results. Never open, read or analyze the user's client data files with any other tool; only GRA's tools may touch them."""
 
 
 def _tool(name: str, description: str, properties: dict, required: list[str] | None = None) -> dict:
@@ -99,6 +110,10 @@ CONNECTOR_TOOLS = [
     *[{"name": t["name"], "description": t["description"], "inputSchema": t["input_schema"]} for t in TOOLS],
     _tool("show_results",
           "Show the current report's finished tables, notes and saved file locations again.", {}),
+    _tool("get_doc_and_sheet",
+          "Get the current report's finished tables and notes ready to deliver as a Claude doc (title and Markdown) "
+          "and a Claude sheet (title and the cells of each tab), the default way to give the user the results. "
+          "Holds only the finished tables and notes (totals), never client records.", {}),
 ]
 
 
@@ -143,7 +158,8 @@ class Connector:
     def call(self, name: str, args: dict) -> tuple[str, bool]:
         handlers = {"find_files": self.find_files, "preview_data": self.preview_data,
                     "start_report": self.start_report, "start_sample_report": self.start_sample_report,
-                    "show_results": self.show_results}
+                    "show_results": self.show_results,
+                    "get_doc_and_sheet": self.get_doc_and_sheet}
         try:
             if name in handlers:
                 return handlers[name](**_known(args, handlers[name]))
@@ -323,15 +339,25 @@ class Connector:
             saved = self._save(run)
         except Exception as e:  # the tables stand even if a file could not be written
             return (out + f"\n\nThe tables were accepted, but the files could not be saved ({type(e).__name__}: {e})."
-                    "\n\n" + results_markdown(s)), False
-        return (out + "\n\n" + _files_text(saved) + "\n\nShow the user the tables below exactly as written, then the "
-                "considerations, if any.\n\n" + results_markdown(s)), False
+                    "\n\n" + NEXT_STEP + "\n\n" + results_markdown(s)), False
+        return (out + "\n\n" + _files_text(saved) + "\n\n" + NEXT_STEP + "\n\n" + results_markdown(s)), False
 
     def show_results(self) -> tuple[str, bool]:
         run = self._current()
         if not run.session.tables:
             return "No tables have been accepted yet in this report.", False
         return _files_text(run.saved) + "\n\n" + results_markdown(run.session), False
+
+    def get_doc_and_sheet(self) -> tuple[str, bool]:
+        import json
+
+        run = self._current()
+        if not run.session.tables:
+            return "No tables have been accepted yet in this report.", False
+        out = {"doc": claude_doc(run.session), "sheet": claude_sheet(run.session),
+               "saved_files": {"folder": str(run.saved[0].parent), "files": [p.name for p in run.saved]} if run.saved else None}
+        return ("Deliver these as a Claude doc and a Claude sheet, as GRA's rules describe (copy every value exactly).\n\n"
+                + json.dumps(out, ensure_ascii=False, indent=1)), False
 
     # ------------------------------------------------------------ saving
 
@@ -499,6 +525,118 @@ def results_markdown(s: ReportSession) -> str:
     if any(c.gap for t in s.tables for r in t.rows for c in r.cells):
         out.append(f"{GAP_MARK} = not available from the data.")
     return "\n".join(out).rstrip()
+
+
+NEXT_STEP = ("Next, call get_doc_and_sheet and deliver the tables as a Claude doc and a Claude sheet, as GRA's rules "
+             "describe. If Claude docs and sheets are not available in this chat, show the user the tables below "
+             "exactly as written instead, then the considerations, if any.")
+SHEET_NAME_MAX = 31  # the same tab names as the Excel file
+_MONTH_DAY = re.compile(r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(st|nd|rd|th)?$", re.I)
+
+
+def claude_doc(s: ReportSession) -> dict:
+    """The finished tables as a Claude doc: a title and the review screen's Markdown under it."""
+    from .exports import heading_lines
+
+    head, _ = heading_lines(s.report, "Grant report")
+    title = f"{head} tables, {s.period[0]} to {s.period[1]}"
+    _, _, rest = results_markdown(s).partition("\n")  # the doc's title replaces the first heading
+    lead, _, body = rest.partition("\n\n")  # the lines under the title, each its own paragraph
+    body = re.sub(r"^### ", "## ", body, flags=re.M)
+    return {"title": title, "tab_name": "Tables", "markdown": "\n\n".join([f"# {title}", *lead.splitlines(), body])}
+
+
+def claude_sheet(s: ReportSession) -> dict:
+    """The finished tables as a Claude sheet: one tab per table, laid out like the Excel file, plus a Notes tab.
+
+    Every cell is written the way the sheet reads typed input: a figure as its display text ("1,234", "12.5%",
+    "$1,200.00"), so it becomes that number with that format; any text that the sheet would read as a number,
+    a date or a formula starts with an apostrophe, which keeps it as text."""
+    from .exports import _note_line, _sheet_name, heading_lines, notes_for, shared_notes, key_notes
+
+    head, below = heading_lines(s.report, "Grant report tables")
+    period = f"{s.period[0]} to {s.period[1]}"
+    notes = list(s.notes.values())
+    shared = shared_notes(s.tables, notes) + key_notes(notes)
+    used: set[str] = set()
+    tabs = []
+    for t in s.tables:
+        width = len(t.headers) + 1
+        rows = [[_text(t.title)], [_text(t.subtitle or f"{head} · {period}")], [],
+                [_text(t.row_header)] + [_text(h) for h in t.headers]]
+        bold, totals = [1, 4], []
+        for r in t.rows:
+            label = "    " * max(0, r.indent) + str(r.label or "")
+            if r.kind == "heading":
+                rows.append([_text(label)])
+                bold.append(len(rows))
+                continue
+            rows.append([_text(label)] + [_figure(c) for c in r.cells[:len(t.headers)]])
+            if r.kind in ("subtotal", "total"):
+                bold.append(len(rows))
+            if r.kind == "total":
+                totals.append(len(rows))
+        last = len(rows)
+        lines = ([t.note] if t.note else []) + _gap_note(t) + [_note_line(n) for n in notes_for(t, notes)]
+        if shared:
+            lines.append("See the Notes tab for assumptions that apply to more than one table.")
+        if lines:
+            rows.append([])
+            rows += [[_text(x)] for x in lines]
+        tabs.append({"name": _sheet_name(t.title or t.id, used), "rows": _rect(rows, width),
+                     "table": {"header_row": 4, "last_row": last, "columns": f"A:{_col(width)}",
+                               "total_rows": [n for n in totals if n == last]},
+                     "bold_rows": bold})
+    rows = [[_text("Assumptions, gaps and warnings")], [_text(" · ".join([head, *below, period]))], [],
+            ["Type", "Note", "Tables", "How to change"]]
+    for n in sorted(notes, key=lambda n: not n.key):
+        affected = "; ".join(t.title for t in s.tables if t.id in n.tables) or "All tables"
+        kind = f"consideration ({n.kind})" if n.key else n.kind
+        rows.append([_text(kind), _text(n.text + (" " + n.question if n.key and n.question else "")
+                           + ("".join(f" Option: {o['label']}." for o in n.options) if n.key else "")),
+                     _text(affected), _text(n.how_to_change)])
+    tabs.append({"name": "Notes", "rows": _rect(rows, 4),
+                 "table": {"header_row": 4, "last_row": max(4, len(rows)), "columns": "A:D", "total_rows": []},
+                 "bold_rows": [1, 4], "wrap_columns": "B:D"})
+    return {"title": f"{head} tables, {period}", "tabs": tabs}
+
+
+def _figure(c) -> str | None:
+    if c.gap:
+        return GAP_MARK
+    if c.value is None or c.display == "":
+        return None
+    return c.display if c.is_number else _text(c.display)
+
+
+def _text(x) -> str | None:
+    """Text that stays text in a Claude sheet: an apostrophe first where it would be read as something else."""
+    x = str(x or "").rstrip()
+    core = x.lstrip()
+    if not core:
+        return None
+    if core[0] in "=+-@'$.(%" or core[0].isdigit() or core.upper() in ("TRUE", "FALSE") or _MONTH_DAY.match(core):
+        return "'" + x
+    return x
+
+
+def _gap_note(t: Table) -> list[str]:
+    from .exports import _gap_lines
+
+    return _gap_lines(t)
+
+
+def _rect(rows: list[list], width: int) -> list[list]:
+    width = max([width] + [len(r) for r in rows])
+    return [r + [None] * (width - len(r)) for r in rows]
+
+
+def _col(n: int) -> str:
+    out = ""
+    while n:
+        n, r = divmod(n - 1, 26)
+        out = chr(65 + r) + out
+    return out
 
 
 def _table_md(t: Table) -> list[str]:

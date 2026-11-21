@@ -303,3 +303,49 @@ def test_client_records_given_as_the_report_are_refused(tmp_path):
     text, err = c.call("start_report", {"report_files": [str(report)], "data_files": data,
                                         "period_start": "2026-01-01", "period_end": "2026-12-31"})
     assert not err and "Problem area 7" in text
+
+
+def test_doc_and_sheet_hold_the_finished_tables_exactly(tmp_path):
+    """The default delivery: a Claude doc and a Claude sheet built from the accepted tables, figure for figure."""
+    c = Connector(output_root=tmp_path / "out")
+    text, err = c.call("get_doc_and_sheet", {})
+    assert err and "start_report" in text
+    start, _ = c.call("start_sample_report", {})
+    assert "get_doc_and_sheet" in start and "Claude sheet" in start  # the rules say how to deliver
+    text, err = c.call("get_doc_and_sheet", {})
+    assert not err and "No tables have been accepted" in text
+    reply = replay(c.call)
+    assert "call get_doc_and_sheet" in reply and "### " in reply  # the chat fallback keeps the tables
+    text, err = c.call("get_doc_and_sheet", {})
+    assert not err
+    out = json.loads(text[text.index("{"):])
+    s = c.run.session
+    doc = out["doc"]["markdown"]
+    assert doc.startswith("# " + out["doc"]["title"] + "\n")
+    tabs = out["sheet"]["tabs"]
+    assert [t["name"] for t in tabs][-1] == "Notes" and len(tabs) == len(s.tables) + 1
+    assert out["saved_files"]["files"] == [p.name for p in c.run.saved]
+    for t, tab in zip(s.tables, tabs):
+        assert f"## {t.title}" in doc
+        rows = tab["rows"]
+        assert len({len(r) for r in rows}) == 1  # a rectangle, as a sheet update needs
+        assert rows[0][0].lstrip("'") == t.title
+        header = rows[tab["table"]["header_row"] - 1]
+        assert [h.lstrip("'") if h else "" for h in header[1:]] == t.headers
+        body = rows[tab["table"]["header_row"]:tab["table"]["last_row"]]
+        assert len(body) == len(t.rows)
+        for r, cells in zip(t.rows, body):
+            assert cells[0].lstrip("'").strip() == r.label
+            for cell, written in zip(r.cells, cells[1:]):
+                if cell.display:
+                    assert cell.display in doc
+                    assert written.lstrip("'") == cell.display
+    assert not s.gate.contains_protected(text)
+
+
+def test_sheet_text_stays_text():
+    from gra.connector import _text
+
+    assert _text("18–59") == "'18–59" and _text("=SUM(A1)") == "'=SUM(A1)" and _text("Feb 3") == "'Feb 3"
+    assert _text("  01.01 Debt") == "'  01.01 Debt" and _text("Women") == "Women" and _text("") is None
+    assert _text("TRUE") == "'TRUE" and _text("-5 points") == "'-5 points"
