@@ -1,7 +1,7 @@
-"""Grant Reporting Assistant as a connector for the Claude app (Claude Desktop), with no API key.
+"""Grant Reporting Assistant as a connector for the Claude app or the ChatGPT app, with no API key.
 
-The user chats with Claude under their normal Claude login. Claude calls this
-connector's tools on the user's computer, and the connector does what the app's
+The user chats with Claude (Claude Desktop) or ChatGPT (the ChatGPT desktop app) under their
+normal login. The chat's AI calls this connector's tools on the user's computer, and the connector does what the app's
 built-in analyst loop does, with the same code and the same privacy gate:
 
 - the data files are imported into a local SQLite database, read where they are;
@@ -12,8 +12,12 @@ built-in analyst loop does, with the same code and the same privacy gate:
   connector writes the Word and Excel files and the AI activity report itself.
 
 The difference from the app is only who asks the questions: there the app sends
-them to the AI service with an API key; here the Claude in the chat calls the
+them to the AI service with an API key; here the AI in the chat calls the
 tools. See gra/engine.py for the shared rules and checks.
+
+The two chat apps differ only in how the finished tables are delivered (see Client):
+Claude builds a Claude doc and a Claude sheet; ChatGPT shows the tables in the chat,
+next to the Word and Excel files saved on this computer, which both always get.
 """
 
 from __future__ import annotations
@@ -33,7 +37,6 @@ from .paths import app_data_dir
 from .schema import describe
 from .tables import GAP_MARK, Table
 
-PROVIDER = "claude-app"
 DOC_TYPES = {".pdf", ".docx", ".xlsx", ".xlsm", ".txt", ".md"}  # CSV files are always treated as data
 RECORD_ROWS = 200  # a report sheet this long with ID, personal or note columns looks like client records
 MAX_TEXT_CHARS = 400_000
@@ -49,22 +52,100 @@ DELIVERY_RULES = """Delivering the finished tables (do this by default, without 
 - If Claude docs or Claude sheets are not available in this chat (no Claude Docs connector, or it refuses), skip what cannot be made without retrying, show the finished tables in the chat exactly as the submit_tables reply gives them, and say once that the same tables are in the Word and Excel files on this computer.
 - The doc and the sheet hold only what get_doc_and_sheet returns: the finished tables and notes, which are totals, never client records. Add nothing else from the data to them."""
 
-CHAT_RULES = """You are working in the user's Claude chat with the Grant Reporting Assistant (GRA) connector. GRA keeps the organization's client data on this computer: it imports the data files into a local database and lets you see only a non-identifying description of the data and aggregate query results. You act as GRA's reporting analyst. Follow GRA's rules below exactly, using the connector's tools run_query, note_assumption and submit_tables.
+CHATGPT_DELIVERY_RULES = """Delivering the finished tables (do this by default, without asking):
+1. The connector has saved the finished tables as Word and Excel files on this computer; they are the deliverable.
+2. In the chat, show the finished tables exactly as the submit_tables reply gives them: copy every table, figure and note exactly; never retype, round, recalculate, reorder or leave out a figure.
+3. Then say where the Word and Excel files were saved on this computer, and list the "Some considerations to check" items, if any, each with its question and options.
+- Do not rebuild the tables in other documents, spreadsheets or canvases, and do not write or run code to make files from them: the saved files already hold them, and every copy is a chance to change a figure.
+- After a correction, show the tables that changed in the same way and say that the files were saved again."""
+
+CHAT_RULES = """You are working in the user's {ai} chat with the Grant Reporting Assistant (GRA) connector. GRA keeps the organization's client data on this computer: it imports the data files into a local database and lets you see only a non-identifying description of the data and aggregate query results. You act as GRA's reporting analyst. Follow GRA's rules below exactly, using the connector's tools run_query, note_assumption and submit_tables.
 
 Working in the chat:
-- Never ask the user to paste, attach or upload client data, and never open, read or analyze the data files with any other tool or connector (file readers, code execution, computer use or a browser). Only GRA's tools may touch them. If client records appear in the chat anyway, do not repeat or use them, and tell the user once that GRA keeps records private only when the files are given to GRA by their location on the computer.
+- Never ask the user to paste, attach or upload client data, and never open, read or analyze the data files with any other tool or connector ({other_tools}). Only GRA's tools may touch them. If client records appear in the chat anyway, do not repeat or use them, and tell the user once that GRA keeps records private only when the files are given to GRA by their location on the computer.
 - Once the report is started, work through every table without stopping to check in with the user, then submit them all. Mention briefly what you are doing as you go.
-- When the tables are accepted, the connector saves the Word and Excel files on this computer and replies with the finished tables. Then deliver them as a Claude doc and a Claude sheet, as described after these rules.
-- When the user answers a consideration or asks for a change, treat it as the user's correction: apply it, re-run only the queries it affects, update or remove the related notes, and submit the tables that change. The connector saves the files again each time, and you update the same Claude doc and Claude sheet (see above).
+- When the tables are accepted, the connector saves the Word and Excel files on this computer and replies with the finished tables. Then {deliver}, as described after these rules.
+- When the user answers a consideration or asks for a change, treat it as the user's correction: apply it, re-run only the queries it affects, update or remove the related notes, and submit the tables that change. The connector saves the files again each time, and you {redeliver} (see below).
 - In the rules below, "the app" means GRA working through these tools, and "uploaded" documents are the ones the user gave to start_report.
 
-""" + DELIVERY_RULES + """
+{delivery}
 
 GRA's rules:
 
 """
 
-INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. When the tables are done, get_doc_and_sheet gives them ready to deliver as a Claude doc and a Claude sheet, the default way to show the results. Never open, read or analyze the user's client data files with any other tool; only GRA's tools may touch them."""
+CLAUDE_INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. When the tables are done, get_doc_and_sheet gives them ready to deliver as a Claude doc and a Claude sheet, the default way to show the results. Never open, read or analyze the user's client data files with any other tool; only GRA's tools may touch them."""
+
+CHATGPT_INSTRUCTIONS = """Grant Reporting Assistant (GRA) rebuilds grant-report tables from an organization's client and case data while the client records stay on this computer. Never open, read, list or analyze the user's client data files with any other tool (no shell commands, scripts or file reads); only GRA's tools may touch them. To start, the user names their past report (or the grant requirements), their data files (or the folder that holds them) and the reporting period; call start_report, which returns the full working rules to follow. find_files lists a folder's files, preview_data shows what GRA keeps private and what it shares, and start_sample_report runs on a fictional sample. In ChatGPT, GRA reads files only from its private data folders, which ChatGPT's own commands are blocked from opening; call find_files with no folder to list them. When the tables are done, GRA saves them as Word and Excel files on this computer, and you show them in the chat exactly as GRA gives them."""
+
+
+@dataclass(frozen=True)
+class Client:
+    """The chat app the connector serves: what the AI and the app are called, and how results are delivered."""
+
+    key: str
+    ai: str
+    app: str
+    provider: str  # recorded in the AI activity report
+    model: str
+    instructions: str
+    delivery: str
+    next_step: str
+    other_tools: str
+    deliver: str
+    redeliver: str
+    add_folder: str
+    doc_and_sheet: bool
+
+    def rules(self) -> str:
+        return CHAT_RULES.format(ai=self.ai, other_tools=self.other_tools, deliver=self.deliver,
+                                 redeliver=self.redeliver, delivery=self.delivery)
+
+
+CLAUDE = Client(
+    key="claude", ai="Claude", app="the Claude app", provider="claude-app",
+    model="Claude in the Claude app (the user's own login)", instructions=CLAUDE_INSTRUCTIONS,
+    delivery=DELIVERY_RULES,
+    next_step=("Next, call get_doc_and_sheet and deliver the tables as a Claude doc and a Claude sheet, as GRA's rules "
+               "describe. If Claude docs and sheets are not available in this chat, show the user the tables below "
+               "exactly as written instead, then the considerations, if any."),
+    other_tools="file readers, code execution, computer use or a browser",
+    deliver="deliver them as a Claude doc and a Claude sheet", redeliver="update the same Claude doc and Claude sheet",
+    add_folder=("The user can add its folder in the Claude app: Settings, Extensions, Grant Reporting Assistant, "
+                "Configure, then 'Folders GRA may read'."),
+    doc_and_sheet=True)
+
+CHATGPT = Client(
+    key="chatgpt", ai="ChatGPT", app="the ChatGPT app", provider="chatgpt-app",
+    model="ChatGPT in the ChatGPT app (the user's own login)", instructions=CHATGPT_INSTRUCTIONS,
+    delivery=CHATGPT_DELIVERY_RULES,
+    next_step=("Next, show the user the tables below exactly as written, say where the Word and Excel files were saved "
+               "on this computer, then list the considerations, if any."),
+    other_tools=("shell or terminal commands, scripts, file readers, code execution, computer use or a browser; "
+                 "to list a folder, use find_files"),
+    deliver="show them to the user", redeliver="show the tables that changed again",
+    add_folder=("In ChatGPT, GRA reads only its private data folders, which ChatGPT itself is blocked from opening. "
+                "Ask the user to move the report and data files into one of them (or to add the folder as a private "
+                "folder by running the Grant Reporting Assistant installer for ChatGPT again, then quitting and "
+                "reopening the ChatGPT app), and do not try to open the files any other way."),
+    doc_and_sheet=False)
+
+CLIENTS = {c.key: c for c in (CLAUDE, CHATGPT)}
+
+
+def detect_client(client_info: dict | None) -> Client | None:
+    """The chat app named in the MCP handshake (clientInfo), if it is one GRA knows; None otherwise."""
+    name = str((client_info or {}).get("name") or "").lower()
+    if any(w in name for w in ("codex", "chatgpt", "openai")):
+        return CHATGPT
+    if "claude" in name:
+        return CLAUDE
+    return None
+
+
+# Compatibility names: the Claude app's wording, used by tests and older callers.
+PROVIDER = CLAUDE.provider
+INSTRUCTIONS = CLAUDE_INSTRUCTIONS
 
 
 def _tool(name: str, description: str, properties: dict, required: list[str] | None = None) -> dict:
@@ -74,13 +155,30 @@ def _tool(name: str, description: str, properties: dict, required: list[str] | N
     return {"name": name, "description": description, "inputSchema": schema}
 
 
+# MCP tool hints: every tool works on this computer only (closed world) and none deletes the user's files.
+# Read-only tools only look; the others keep the report's state or save the finished files.
+READ_ONLY = {"find_files", "preview_data", "run_query", "show_results", "get_doc_and_sheet"}
+TITLES = {"find_files": "Find report and data files", "preview_data": "Preview what stays private",
+          "start_report": "Start a report", "start_sample_report": "Start the sample report",
+          "run_query": "Run a privacy-checked count", "note_assumption": "Note an assumption",
+          "submit_tables": "Check and save the tables", "show_results": "Show the finished tables",
+          "get_doc_and_sheet": "Get the tables for a doc and sheet"}
+
+
+def _annotated(tool: dict) -> dict:
+    name = tool["name"]
+    return {**tool, "annotations": {"title": TITLES.get(name, name), "readOnlyHint": name in READ_ONLY,
+                                    "destructiveHint": False, "idempotentHint": name in READ_ONLY,
+                                    "openWorldHint": False}}
+
+
 _PATHS = {"type": "array", "items": {"type": "string"}}
 CONNECTOR_TOOLS = [
     _tool("find_files",
           "List the files in a folder and its subfolders one level down (names, types and sizes only; nothing is "
-          "opened), to find the user's past report and data files. Use the folder path the user gives.",
-          {"folder": {"type": "string", "description": "Full path of the folder, e.g. C:\\Users\\me\\Documents\\Grant data"}},
-          ["folder"]),
+          "opened), to find the user's past report and data files. Use the folder path the user gives; leave it out "
+          "to list the folders GRA may read.",
+          {"folder": {"type": "string", "description": "Full path of the folder, e.g. C:\\Users\\me\\Documents\\Grant data"}}),
     _tool("preview_data",
           "Show which columns of the data files GRA keeps on this computer and what it may share (category values "
           "and totals), before starting a report. Nothing from the records themselves is returned.",
@@ -115,14 +213,17 @@ CONNECTOR_TOOLS = [
           "and a Claude sheet (title and the cells of each tab), the default way to give the user the results. "
           "Holds only the finished tables and notes (totals), never client records.", {}),
 ]
+CONNECTOR_TOOLS = [_annotated(t) for t in CONNECTOR_TOOLS]
 
 
 class ChatModel:
-    """Stands in for the AI service client: in the Claude app, the chat's own Claude makes the tool calls."""
+    """Stands in for the AI service client: in a chat app, the chat's own AI makes the tool calls."""
 
-    provider = PROVIDER
-    model = "Claude in the Claude app (the user's own login)"
     stored = None
+
+    def __init__(self, client: Client = CLAUDE):
+        self.provider = client.provider
+        self.model = client.model
 
     def respond(self, *args, **kwargs):  # never called: the connector has no loop of its own
         raise RuntimeError("The connector does not send requests to an AI service.")
@@ -142,9 +243,13 @@ class ChatRun:
 
 class Connector:
     """The connector's tools. read_roots limits which folders may be read (None: anywhere);
-    output_root is where finished reports are saved."""
+    output_root is where finished reports are saved. client is the chat app (Claude by default); when
+    fixed_client is False, the app named in the MCP handshake replaces it."""
 
-    def __init__(self, read_roots: list[Path] | None = None, output_root: Path | None = None, word_ready=None):
+    def __init__(self, read_roots: list[Path] | None = None, output_root: Path | None = None, word_ready=None,
+                 client: Client = CLAUDE, fixed_client: bool = True):
+        self.client = client
+        self.fixed_client = fixed_client
         self.read_roots = [Path(r).expanduser() for r in read_roots] if read_roots else None
         self.output_root = Path(output_root).expanduser() if output_root else _default_output()
         self.word_ready = word_ready or (lambda: True)  # waits for Word support (lxml) on first use
@@ -152,8 +257,19 @@ class Connector:
 
     # ------------------------------------------------------------ protocol glue
 
+    def initialized(self, params: dict) -> None:
+        """Called with the MCP handshake: picks the chat app's wording unless the start command named one."""
+        found = detect_client(params.get("clientInfo") if isinstance(params, dict) else None)
+        if found and not self.fixed_client:
+            self.client = found
+
+    def instructions(self) -> str:
+        return self.client.instructions
+
     def tools(self) -> list[dict]:
-        return CONNECTOR_TOOLS
+        if self.client.doc_and_sheet:
+            return CONNECTOR_TOOLS
+        return [t for t in CONNECTOR_TOOLS if t["name"] != "get_doc_and_sheet"]
 
     def call(self, name: str, args: dict) -> tuple[str, bool]:
         handlers = {"find_files": self.find_files, "preview_data": self.preview_data,
@@ -171,7 +287,24 @@ class Connector:
 
     # ------------------------------------------------------------ finding and previewing files
 
-    def find_files(self, folder: str) -> tuple[str, bool]:
+    def _guard(self) -> None:
+        """In ChatGPT, stop before reading any file unless ChatGPT's own tools are blocked from GRA's folders."""
+        if self.client is not CHATGPT:
+            return
+        from .chatgpt_guard import protection_problem
+
+        problem = protection_problem(self.read_roots and [*self.read_roots, _runs_dir()])
+        if problem:
+            raise UserError(f"GRA stopped: {problem}, so ChatGPT itself could open the data files. Nothing was read. "
+                            "Tell the user to run the Grant Reporting Assistant installer for ChatGPT again, then quit "
+                            "and reopen the ChatGPT app. Do not try to read or list the files any other way.")
+
+    def find_files(self, folder: str | None = None) -> tuple[str, bool]:
+        self._guard()
+        if not folder:
+            if not self.read_roots:
+                raise UserError("Ask the user which folder holds the report and data files, then call find_files on it.")
+            return "\n\n".join(self.find_files(str(r))[0] for r in self.read_roots), False
         root = self._folder(folder)
         found = []
         for p in sorted(root.rglob("*")):
@@ -194,6 +327,7 @@ class Connector:
     def preview_data(self, data_files: list) -> tuple[str, bool]:
         from .api import _preview_groups
 
+        self._guard()
         paths = self._files(data_files, READERS, "data")
         folder = _runs_dir() / f"preview-{uuid.uuid4().hex[:8]}"
         folder.mkdir(parents=True)
@@ -235,6 +369,7 @@ class Connector:
                 raise UserError("The reporting period ends before it starts.")
         except ValueError:
             raise UserError("Give the reporting period as two dates written YYYY-MM-DD.") from None
+        self._guard()
         reports = self._files(report_files or [], DOC_TYPES, "report")
         data = self._files(data_files, READERS, "data")
         overlap = {p.resolve() for p in reports} & {p.resolve() for p in data}
@@ -251,7 +386,7 @@ class Connector:
         if not data:
             raise UserError("Give at least one data file (CSV, Excel or JSON).")
         if any(p.suffix.lower() in (".docx", ".xlsx", ".xlsm") for p in reports) and not self.word_ready():
-            raise UserError(WORD_MISSING)
+            raise UserError(word_missing(self.client))
         run_id = uuid.uuid4().hex[:12]
         folder = _runs_dir() / run_id
         folder.mkdir(parents=True)
@@ -265,11 +400,11 @@ class Connector:
         gate = QueryGate(db, catalog)
         try:
             for p in reports:
-                _refuse_records(p, folder)
+                _refuse_records(p, folder, self.client.ai)
             checks = check_report_files(reports, gate)
         except ValueError as e:
             shutil.rmtree(folder, ignore_errors=True)
-            raise UserError(str(e).replace("Nothing was sent to the AI", "Nothing from it was shown to Claude")) from None
+            raise UserError(str(e).replace("Nothing was sent to the AI", f"Nothing from it was shown to {self.client.ai}")) from None
         blocks, unreadable = [], []
         for p in reports:
             text = report_text(p)
@@ -283,12 +418,12 @@ class Connector:
             raise UserError(f"{', '.join(unreadable)} has no readable text (it may be a scan). Ask the user to attach "
                             "that report to this chat (it is the report, not client data), then call start_report "
                             "again without it.")
-        session = ReportSession(gate, describe(db, catalog), blocks, period, ChatModel(),
+        session = ReportSession(gate, describe(db, catalog), blocks, period, ChatModel(self.client),
                                 limits=Limits(max_queries=400), activity_path=folder / "activity.jsonl",
                                 layout=layout_summary(reports))
         session.begin_round()
         session.status = "running"
-        rules = CHAT_RULES + SYSTEM_PROMPT
+        rules = self.client.rules() + SYSTEM_PROMPT
         session.activity.add("instructions", "sent", text=rules)
         session.activity.add("tools", "sent", tools=TOOLS)
         session.activity.add("request", "sent", number=1)
@@ -323,9 +458,9 @@ class Connector:
         run.calls += 1
         use_id = f"chat{run.calls}"
         s.activity.add("response", "received", content=[{"type": "tool_use", "id": use_id, "name": name, "input": args}],
-                       stop_reason="tool_use", model=ChatModel.model)
+                       stop_reason="tool_use", model=self.client.model)
         if name == "submit_tables" and not self.word_ready():
-            out, err, accepted = WORD_MISSING, True, False
+            out, err, accepted = word_missing(self.client), True, False
         else:
             out, err, accepted = s.handle_tool(name, args if isinstance(args, dict) else {})
         s.activity.add("message", "sent", role="user", content=[
@@ -339,8 +474,8 @@ class Connector:
             saved = self._save(run)
         except Exception as e:  # the tables stand even if a file could not be written
             return (out + f"\n\nThe tables were accepted, but the files could not be saved ({type(e).__name__}: {e})."
-                    "\n\n" + NEXT_STEP + "\n\n" + results_markdown(s)), False
-        return (out + "\n\n" + _files_text(saved) + "\n\n" + NEXT_STEP + "\n\n" + results_markdown(s)), False
+                    "\n\n" + self.client.next_step + "\n\n" + results_markdown(s)), False
+        return (out + "\n\n" + _files_text(saved) + "\n\n" + self.client.next_step + "\n\n" + results_markdown(s)), False
 
     def show_results(self) -> tuple[str, bool]:
         run = self._current()
@@ -354,6 +489,9 @@ class Connector:
         run = self._current()
         if not run.session.tables:
             return "No tables have been accepted yet in this report.", False
+        if not self.client.doc_and_sheet:
+            return (f"Claude docs and sheets are not available in {self.client.app}. " + self.client.next_step
+                    + "\n\n" + _files_text(run.saved) + "\n\n" + results_markdown(run.session)), False
         out = {"doc": claude_doc(run.session), "sheet": claude_sheet(run.session),
                "saved_files": {"folder": str(run.saved[0].parent), "files": [p.name for p in run.saved]} if run.saved else None}
         return ("Deliver these as a Claude doc and a Claude sheet, as GRA's rules describe (copy every value exactly).\n\n"
@@ -412,8 +550,7 @@ class Connector:
             return p
         if self.read_roots is not None and not any(_inside(p, r.resolve()) for r in self.read_roots):
             raise UserError(f"{p} is outside the folders GRA may read ({', '.join(str(r) for r in self.read_roots)}). "
-                            "The user can add its folder in the Claude app: Settings, Extensions, Grant Reporting "
-                            "Assistant, Configure, then 'Folders GRA may read'.")
+                            + self.client.add_folder)
         if any(part.startswith(".") for part in p.parts[1:]):
             raise UserError(f"{p} is in a hidden folder, which GRA does not read.")
         return p
@@ -442,15 +579,19 @@ class Connector:
 
 
 class UserError(Exception):
-    """A problem to report back to Claude (and the user) in plain words."""
+    """A problem to report back to the chat's AI (and the user) in plain words."""
 
 
-WORD_MISSING = ("Word support is still being set up on this computer (a one-time download), or it could not be "
-                "installed. Wait a minute and try again. If it keeps failing, check the internet connection, then "
-                "restart the Claude app.")
+def word_missing(client: Client = CLAUDE) -> str:
+    return ("Word support is still being set up on this computer (a one-time download), or it could not be "
+            "installed. Wait a minute and try again. If it keeps failing, check the internet connection, then "
+            f"restart {client.app}.")
 
 
-def _refuse_records(path: Path, work: Path):
+WORD_MISSING = word_missing(CLAUDE)
+
+
+def _refuse_records(path: Path, work: Path, ai: str = "Claude"):
     """Refuse a spreadsheet given as the report that looks like client records rather than report tables.
 
     The report is shown to Claude in full, so this stops a data export passed as the report, even one
@@ -467,7 +608,7 @@ def _refuse_records(path: Path, work: Path):
         roles = {c.role for c in t.columns}
         if not t.reference and ("sensitive" in roles or (t.rows >= RECORD_ROWS and roles & {"identifier", "free_text"})):
             raise ValueError(f"{path.name} looks like client records (sheet with {t.rows:,} rows and ID, personal or "
-                             "note columns), not a report. Nothing from it was shown to Claude. Give it as a data file, "
+                             f"note columns), not a report. Nothing from it was shown to {ai}. Give it as a data file, "
                              "or give the past report or grant requirements as the report.")
 
 
@@ -527,9 +668,7 @@ def results_markdown(s: ReportSession) -> str:
     return "\n".join(out).rstrip()
 
 
-NEXT_STEP = ("Next, call get_doc_and_sheet and deliver the tables as a Claude doc and a Claude sheet, as GRA's rules "
-             "describe. If Claude docs and sheets are not available in this chat, show the user the tables below "
-             "exactly as written instead, then the considerations, if any.")
+NEXT_STEP = CLAUDE.next_step
 SHEET_NAME_MAX = 31  # the same tab names as the Excel file
 _MONTH_DAY = re.compile(r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(st|nd|rd|th)?$", re.I)
 
@@ -707,23 +846,29 @@ def _default_output() -> Path:
 
 
 def main(argv: list[str] | None = None, word_ready=None):
-    """Run the connector over standard input and output, as the Claude app starts it.
+    """Run the connector over standard input and output, as the Claude app or the ChatGPT app starts it.
 
-    Arguments: --output FOLDER (reports are saved in its "Grant Reporting Assistant" folder) and --allow FOLDER [FOLDER ...] (folders it may read)."""
+    Arguments: --output FOLDER (reports are saved in its "Grant Reporting Assistant" folder), --allow FOLDER
+    [FOLDER ...] (folders it may read) and --client claude|chatgpt (the chat app; without it, the app named in
+    the MCP handshake, else Claude)."""
     from .mcp_stdio import ToolServer
 
     argv = list(sys.argv[1:] if argv is None else argv)
-    output, roots, mode = None, [], None
+    output, roots, mode, client = None, [], None, None
     for a in argv:
-        if a in ("--output", "--allow"):
+        if a in ("--output", "--allow", "--client"):
             mode = a
         elif mode == "--output" and output is None and a.strip() and "${" not in a:
             output = a
         elif mode == "--allow" and a.strip() and "${" not in a:
             roots.append(Path(a))
-    connector = Connector(roots or None, Path(output) / "Grant Reporting Assistant" if output else None, word_ready)
-    ToolServer("grant-reporting-assistant", __version__, INSTRUCTIONS, connector.tools, connector.call).serve()
-
+        elif mode == "--client" and client is None:
+            client = CLIENTS.get(a.strip().lower())
+            mode = None
+    connector = Connector(roots or None, Path(output) / "Grant Reporting Assistant" if output else None, word_ready,
+                          client=client or CLAUDE, fixed_client=client is not None)
+    ToolServer("grant-reporting-assistant", __version__, connector.instructions, connector.tools, connector.call,
+               on_initialize=connector.initialized).serve()
 
 if __name__ == "__main__":
     main()

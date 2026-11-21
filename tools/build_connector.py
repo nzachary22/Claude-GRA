@@ -31,6 +31,53 @@ CONNECTOR_FILES = ["manifest.json", "icon.png", "server/main.py", "server/start.
 LEAVE_OUT = ("gra/static/",)  # the app's web page; the connector has none
 
 
+def libraries(tmp: Path, lib_cache: Path | None = None) -> Path:
+    """The pure-Python libraries, downloaded into tmp/lib (or copied from lib_cache)."""
+    lib = Path(tmp) / "lib"
+    if lib_cache and lib_cache.exists():
+        shutil.copytree(lib_cache, lib)
+    else:
+        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
+                        "--no-deps", "--only-binary=:all:", "--target", str(lib), *LIBRARIES], check=True)
+        if lib_cache:
+            shutil.copytree(lib, lib_cache)
+    compiled = [p.name for p in lib.rglob("*") if p.suffix in (".so", ".pyd", ".dylib")]
+    if compiled:
+        sys.exit(f"A bundled library is not pure Python, so it would not work on every computer: {compiled}")
+    return lib
+
+
+def server_files(lib: Path):
+    """(path inside the server folder, bytes, executable) for the connector's starter, app code and libraries."""
+    for f in CONNECTOR_FILES[2:]:
+        yield f.removeprefix("server/"), (ROOT / "connector" / f).read_bytes(), f.endswith(".sh")
+    for f in program_files():
+        if f.startswith("gra/") and not f.startswith(LEAVE_OUT):
+            yield f, (ROOT / f).read_bytes(), False
+    for p in sorted(lib.rglob("*")):
+        if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc":
+            yield f"lib/{p.relative_to(lib).as_posix()}", p.read_bytes(), False
+
+
+def zip_adder(z: zipfile.ZipFile, unix: bool = False):
+    """unix: mark entries as Unix files, so a Mac's Archive Utility keeps starters runnable when unzipping."""
+    def add(arcname: str, data: bytes, executable: bool = False):
+        info = zipfile.ZipInfo(arcname, FIXED_TIME)
+        mode = 0o755 if executable else 0o644
+        if unix:
+            info.create_system = 3
+            mode |= 0o100000
+        info.external_attr = mode << 16
+        info.compress_type = zipfile.ZIP_DEFLATED
+        z.writestr(info, data)
+    return add
+
+
+def report(out: Path) -> None:
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
+    print(f"{out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}  {out.stat().st_size:,} bytes  SHA-256 {digest}")
+
+
 def build(dest: Path = ROOT / "dist", lib_cache: Path | None = None, ver: str | None = None) -> Path:
     """ver overrides the version (default: pyproject's), e.g. 2.1.0-preview.2 for a test build, so the
     Claude app sees a new build as an update rather than the version already installed."""
@@ -38,40 +85,18 @@ def build(dest: Path = ROOT / "dist", lib_cache: Path | None = None, ver: str | 
     out = dest / f"grant-reporting-assistant-{ver}.mcpb"
     out.parent.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
-        lib = Path(tmp) / "lib"
-        if lib_cache and lib_cache.exists():
-            shutil.copytree(lib_cache, lib)
-        else:
-            subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
-                            "--no-deps", "--only-binary=:all:", "--target", str(lib), *LIBRARIES], check=True)
-            if lib_cache:
-                shutil.copytree(lib, lib_cache)
-        compiled = [p.name for p in lib.rglob("*") if p.suffix in (".so", ".pyd", ".dylib")]
-        if compiled:
-            sys.exit(f"A bundled library is not pure Python, so it would not work on every computer: {compiled}")
+        lib = libraries(Path(tmp), lib_cache)
         manifest = json.loads((ROOT / "connector" / "manifest.json").read_text(encoding="utf-8"))
         manifest["version"] = ver
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-            def add(arcname: str, data: bytes, executable: bool = False):
-                info = zipfile.ZipInfo(arcname, FIXED_TIME)
-                info.external_attr = (0o755 if executable else 0o644) << 16
-                info.compress_type = zipfile.ZIP_DEFLATED
-                z.writestr(info, data)
-
+            add = zip_adder(z)
             add("manifest.json", (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
-            for f in CONNECTOR_FILES[1:]:
-                add(f, (ROOT / "connector" / f).read_bytes(), executable=f.endswith(".sh"))
+            add("icon.png", (ROOT / "connector" / "icon.png").read_bytes())
             add("LICENSE", (ROOT / "LICENSE").read_bytes())
-            for f in program_files():
-                if f.startswith("gra/") and not f.startswith(LEAVE_OUT):
-                    add(f"server/{f}", (ROOT / f).read_bytes())
-            for p in sorted(lib.rglob("*")):
-                if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc":
-                    add(f"server/lib/{p.relative_to(lib).as_posix()}", p.read_bytes())
-    digest = hashlib.sha256(out.read_bytes()).hexdigest()
-    print(f"{out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}  {out.stat().st_size:,} bytes  SHA-256 {digest}")
+            for name, data, executable in server_files(lib):
+                add(f"server/{name}", data, executable)
+    report(out)
     return out
-
 
 if __name__ == "__main__":
     import argparse

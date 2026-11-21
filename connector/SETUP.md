@@ -2,7 +2,7 @@
 
 This is a second way to use Grant Reporting Assistant (GRA). Instead of the app's own screens and an API key, you chat with Claude in the Claude desktop app, signed in with your normal Claude account, and the work counts toward your plan's usual usage limits. GRA runs on your computer as a Claude **extension** and does the counting there, so client records stay on your computer, just as in the app.
 
-The app with an API key still works as before. Use whichever suits you.
+The app with an API key still works as before. Use whichever suits you. To use GRA in the ChatGPT desktop app instead, see [CHATGPT.md](CHATGPT.md).
 
 ## What you need
 

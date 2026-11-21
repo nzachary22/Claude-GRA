@@ -14,7 +14,7 @@ def app_data_dir() -> Path:
     if override:
         base = Path(override)
     elif os.name == "nt":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "GrantReportingAssistant"
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "GrantReportingAssistant"
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support" / "GrantReportingAssistant"
     else:
