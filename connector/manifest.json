@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "grant-reporting-assistant",
   "display_name": "Grant Reporting Assistant",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "description": "Rebuild grant-report tables from your client data in a Claude chat, with your normal Claude login and no API key. Client records stay on your computer.",
-  "long_description": "Grant Reporting Assistant (GRA) rebuilds the tables of a past grant report, or a funder's requirements, for a new reporting period from your organization's client and case data.\n\nGRA imports the data files into a protected database on your computer. Claude sees only the report, a description of the data with no client details, and totals from GRA's privacy-checked queries, never individual records, names, IDs or notes. Every figure comes from a query on your computer, and GRA saves the finished tables as Word and Excel files, with an AI activity report of everything Claude was shown.\n\nAsk Claude, for example: \"Use Grant Reporting Assistant to rebuild my 2025 report for 2026. The report and data are in Documents\\Grant data.\" To try it first, ask: \"Run the Grant Reporting Assistant sample report.\"",
+  "long_description": "Grant Reporting Assistant (GRA) rebuilds the tables of a past grant report, or a funder's requirements, for a new reporting period from your organization's client and case data.\n\nGRA imports the data files into a protected database on your computer. Claude sees only the report, a description of the data with no client details, and totals from GRA's privacy-checked queries, never individual records, names, IDs or notes. Every figure comes from a query on your computer, and Claude delivers the finished tables as a Claude doc and a Claude sheet, while GRA also saves them as Word and Excel files on your computer, with an AI activity report of everything Claude was shown.\n\nAsk Claude, for example: \"Use Grant Reporting Assistant to rebuild my 2025 report for 2026. The report and data are in Documents\\Grant data.\" To try it first, ask: \"Run the Grant Reporting Assistant sample report.\"",
   "author": {"name": "Nate Zachary", "url": "https://github.com/nzachary22/Claude-GRA"},
   "homepage": "https://grant-reporting-assistant.netlify.app/",
   "repository": {"type": "git", "url": "https://github.com/nzachary22/Claude-GRA"},
@@ -34,7 +34,8 @@
     {"name": "run_query", "description": "Run a privacy-checked count; only totals come back."},
     {"name": "note_assumption", "description": "Record an assumption, gap or warning."},
     {"name": "submit_tables", "description": "Check the finished tables and save Word and Excel files."},
-    {"name": "show_results", "description": "Show the finished tables and saved files again."}
+    {"name": "show_results", "description": "Show the finished tables and saved files again."},
+    {"name": "get_doc_and_sheet", "description": "Give the finished tables as a Claude doc and a Claude sheet."}
   ],
   "user_config": {
     "read_folders": {
