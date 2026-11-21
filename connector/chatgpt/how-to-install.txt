@@ -10,7 +10,7 @@ Install (once)
   If Windows says "Windows protected your PC", click "More info", then "Run anyway".
 - Mac: right-click "Install on Mac.command" and choose "Open", then click "Open" again.
   If the Mac still refuses, open System Settings > Privacy & Security, scroll down and click "Open Anyway".
-- It makes a private folder, Documents > GRA Private Data. ChatGPT itself is blocked from opening it;
+- It makes a private folder, your user folder > GRA Private Data. ChatGPT itself is blocked from opening it;
   only GRA reads it. When it asks about other private folders, usually click No.
 - When it says it is installed, open the ChatGPT app again.
 
@@ -20,7 +20,7 @@ Try it
   are saved in Documents > Grant Reporting Assistant.
 
 Your own report
-- Put your past report and data files in Documents > GRA Private Data, then type something like:
+- Put your past report and data files in your user folder > GRA Private Data, then type something like:
   Use Grant Reporting Assistant to rebuild my 2025 report for January 1 to December 31, 2026.
   The files are in GRA Private Data.
 - Never attach data files to the chat.

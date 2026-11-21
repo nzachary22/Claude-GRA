@@ -271,7 +271,7 @@ def test_installer_from_the_source_folder(tmp_path):
     assert parsed["mcp_servers"]["context7"]["command"] == "npx" and parsed["profiles"]["work"]["model"] == "other"
     server = parsed["mcp_servers"]["grant_reporting_assistant"]
     assert Path(server["args"][0]) == target / "server" / "main.py"
-    private = (docs / "GRA Private Data").resolve()
+    private = (home / "GRA Private Data").resolve()  # in the user folder, not a possibly synced Documents
     assert server["args"][server["args"].index("--allow") + 1:] == [str(private), str(drive.resolve())]  # not home
     deny = parsed["permissions"]["gra-protected"]["filesystem"]
     work = home / ".grant-reporting-assistant" / "chatgpt-work"

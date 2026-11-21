@@ -7,7 +7,7 @@ from GRA's private data folders. Started by "Install on Windows.bat" or "Install
 
 1. copies GRA's connector into this computer's app data folder;
 2. sets up Word support (a one-time download of the lxml library);
-3. makes the private data folder (Documents > GRA Private Data) and asks whether the user
+3. makes the private data folder (your user folder > GRA Private Data) and asks whether the user
    keeps files in other folders that should be private too (folders chosen before are kept);
 4. writes ChatGPT's settings: a permissions profile that denies ChatGPT's commands any access
    to those folders and to GRA's working files, an approval policy that turns down requests
@@ -383,9 +383,12 @@ def install(install_dir: Path, extra: list[Path], dialogs: bool, output: Path | 
 
     say("3. Choosing GRA's private data folders")
     output = output or documents_folder()
-    private = private or output / guard.PRIVATE_FOLDER
+    # In the home folder, not Documents: Windows often keeps Documents in OneDrive, which would copy client
+    # records to the cloud, and the folder must be the exact one ChatGPT is blocked from.
+    private = private or Path.home() / guard.PRIVATE_FOLDER
     private.mkdir(parents=True, exist_ok=True)
-    folders = choose_private_folders(ui, title, private.resolve(), allowed_before(old_text), extra, dialogs)
+    before = [p for p in allowed_before(old_text) if p != output / guard.PRIVATE_FOLDER]  # the old default spot
+    folders = choose_private_folders(ui, title, private.resolve(), before, extra, dialogs)
     for p in folders:
         say(f"   - {p}")
     work = guard.work_folder()
