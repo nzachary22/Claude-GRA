@@ -107,7 +107,7 @@ model = "other"
 """
 
 HOME = Path.home()
-PRIVATE = [HOME / "Documents" / "GRA Private Data", Path('/data/Grant "files" Ana María')]
+PRIVATE = [HOME / "Documents" / "GRA Private Data", HOME / "Shared drive" / 'Grant "files" Ana María']  # absolute everywhere
 WORK = HOME / ".grant-reporting-assistant" / "chatgpt-work"
 
 
