@@ -338,6 +338,7 @@ def _main_module():
 def test_windows_home_is_restored_from_the_install_folder(monkeypatch):
     main = _main_module()
     monkeypatch.setattr(main.os, "name", "nt")
+    monkeypatch.setattr(main, "_known_folder", lambda guid: None)  # as if Windows could not say either
     here = "C:\\Users\\Ana María\\AppData\\Local\\GrantReportingAssistant\\ChatGPT connector\\server"
     env = main.ensure_home_env({"USERNAME": "ana", "PATH": "x"}, here=here)
     assert env["USERPROFILE"] == "C:\\Users\\Ana María"
@@ -351,6 +352,7 @@ def test_windows_home_is_restored_from_the_install_folder(monkeypatch):
 def test_windows_home_falls_back_to_the_user_name(monkeypatch):
     main = _main_module()
     monkeypatch.setattr(main.os, "name", "nt")
+    monkeypatch.setattr(main, "_known_folder", lambda guid: None)  # as if Windows could not say either
     env = main.ensure_home_env({"USERNAME": "nzach", "SYSTEMDRIVE": "C:"}, here="E:\\portable\\server")
     assert env["USERPROFILE"].replace("/", "\\").startswith("C:\\") and env["USERPROFILE"].endswith("nzach")
 
