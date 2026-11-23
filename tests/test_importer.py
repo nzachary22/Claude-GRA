@@ -175,3 +175,42 @@ def test_codes_that_cases_are_grouped_by_never_stop_a_report(tmp_path):
     gate = QueryGate(tmp_path / "x.db", catalog)
     assert not gate.contains_protected("AP01 Powers of attorney | 12")
     assert gate.contains_protected("Client CL0007 was served")
+
+
+def test_copies_of_one_export_become_one_table(tmp_path):
+    """Two period extracts of one export (same columns, saved as cases.csv and cases_2.csv) form one table;
+    where a record is in both, the later file's copy is kept."""
+    from tests.conftest import write_csv
+    from gra.schema import describe
+    (tmp_path / "a").mkdir(); (tmp_path / "b").mkdir()
+    early = write_csv(tmp_path / "a" / "cases.csv", ["case_id", "status", "closed_date"],
+                      [["K1", "closed", "2026-03-01"], ["K2", "open", ""], ["K3", "open", ""]])
+    later = write_csv(tmp_path / "b" / "cases_2.csv", ["status", "case_id", "closed_date"],
+                      [["closed", "K2", "2027-02-01"], ["open", "K4", ""]])
+    catalog = import_files(tmp_path / "x.db", [early, later])
+    assert [t.name for t in catalog.tables] == ["cases"]
+    t = catalog.table("cases")
+    assert t.rows == 4 and "cases.csv + cases_2.csv" == t.source_file
+    assert "1 records appeared in more than one file by case_id" in t.combined
+    conn = sqlite3.connect(tmp_path / "x.db")
+    assert conn.execute("SELECT status, closed_date FROM cases WHERE case_id = 'K2'").fetchone() == ("closed", "2027-02-01")
+    assert "combined from 2 files" in describe(tmp_path / "x.db", catalog)
+
+
+def test_copies_without_a_record_key_keep_repeated_rows_once(tmp_path):
+    from tests.conftest import write_csv
+    a = write_csv(tmp_path / "codes.csv", ["code", "label"], [["A", "Alpha"], ["B", "Beta"]])
+    b = write_csv(tmp_path / "codes (2).csv", ["code", "label"], [["A", "Alpha"], ["C", "Gamma"]])
+    catalog = import_files(tmp_path / "x.db", [a, b])
+    assert [t.name for t in catalog.tables] == ["codes"] and catalog.table("codes").rows == 3
+
+
+def test_different_tables_are_never_combined(tmp_path):
+    """Same columns under different names, or the same name with different columns, stay separate."""
+    from tests.conftest import write_csv
+    a = write_csv(tmp_path / "open_cases.csv", ["case_id", "status"], [["K1", "open"]])
+    b = write_csv(tmp_path / "closed_cases.csv", ["case_id", "status"], [["K2", "closed"]])
+    c = write_csv(tmp_path / "open_cases_2.csv", ["case_id", "office"], [["K3", "North"]])
+    catalog = import_files(tmp_path / "x.db", [a, b, c])
+    assert sorted(t.name for t in catalog.tables) == ["closed_cases", "open_cases", "open_cases_2"]
+    assert not any(t.combined for t in catalog.tables)

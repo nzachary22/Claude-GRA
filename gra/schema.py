@@ -23,7 +23,10 @@ def describe(db_path: Path, catalog: Catalog) -> str:
     try:
         for t in catalog.tables:
             kind = "reference/code table" if t.reference else "data table"
-            lines.append(f"TABLE {t.name} ({kind}; {t.rows} rows; from file {t.source_file})")
+            if t.combined:
+                lines.append(f"TABLE {t.name} ({kind}; {t.rows} rows; {t.combined})")
+            else:
+                lines.append(f"TABLE {t.name} ({kind}; {t.rows} rows; from file {t.source_file})")
             hidden = 0
             for c in t.columns:
                 if c.role == "free_text":

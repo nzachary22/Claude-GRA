@@ -159,10 +159,19 @@
       if (typeof suggestSaved === "function") suggestSaved();
     };
     const set = (files) => {
-      // A file chosen again replaces the earlier copy of the same name, so a corrected export is never ignored.
-      const names = new Set(files.map((f) => f.name));
-      state[key] = [...state[key].filter((f) => !names.has(f.name)), ...files];
+      // The same file chosen twice is listed once. A different file with the same name (an export for
+      // another period, saved in another folder) is kept beside the first, never dropped without a word:
+      // the app joins copies of one export into one table, and the later file wins where records repeat.
+      const same = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+      const kept = state[key].filter((f) => !files.some((g) => same(f, g)));
+      const twins = [...new Set(files.filter((g) => kept.some((f) => f.name === g.name)).map((g) => g.name))];
+      state[key] = [...kept, ...files];
       render();
+      if (twins.length) {
+        msg("upload-msg", `${twins.join(", ")} ${twins.length === 1 ? "was" : "were"} added again with different contents. ` +
+          "Both copies are kept and combined into one table; where a record is in both, the copy added later is used. " +
+          "If one is an outdated copy, remove it with ×.");
+      }
     };
     setters[key] = set;
     // The list sits inside the clickable box, so its buttons must not open the file picker.
