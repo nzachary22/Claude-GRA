@@ -435,3 +435,18 @@ def test_past_reports_reopen_after_a_reload(page, servers, tmp_path):
     page.wait_for_function("() => /No past reports yet/.test(document.getElementById('past-list').textContent)")
     assert page.is_visible("#upload") and not page.is_visible("#past-delete-all")
     assert page.errors == []
+
+
+def test_a_second_file_with_the_same_name_is_kept(page, tmp_path):
+    """An export for another period saved under the same name is listed beside the first, never dropped
+    without a word; choosing the very same file again lists it once."""
+    (tmp_path / "2026").mkdir(); (tmp_path / "2027").mkdir()
+    first, second = tmp_path / "2026" / "cases.csv", tmp_path / "2027" / "cases.csv"
+    first.write_text("case_id,status\nK1,open\n")
+    second.write_text("case_id,status\nK1,closed\nK2,open\n")
+    page.set_input_files("#data-files", [str(first)])
+    page.set_input_files("#data-files", [str(first)])
+    assert page.locator("#data-list .file-open").count() == 1
+    page.set_input_files("#data-files", [str(second)])
+    assert page.locator("#data-list .file-open").count() == 2
+    assert "added again with different contents" in page.text_content("#upload-msg")

@@ -87,6 +87,7 @@ class TableInfo:
     rows: int
     columns: list[ColumnInfo] = field(default_factory=list)
     reference: bool = False
+    combined: str = ""  # how rows from several files of the same table were combined, if they were
 
     def column(self, name: str) -> ColumnInfo | None:
         return next((c for c in self.columns if c.name == name), None)
@@ -376,18 +377,100 @@ def import_files(db_path: Path, files: list[Path], time_zone: str | None = None)
     catalog = Catalog()
     taken: set[str] = set()
     try:
+        parts = []
         for path in files:
             reader = READERS.get(Path(path).suffix.lower())
             if reader is None:
                 raise ValueError(f"Unsupported data file type: {Path(path).name}")
             for raw_name, headers, rows in reader(Path(path)):
-                catalog.tables.append(_load_table(conn, raw_name, headers, rows, Path(path).name, taken, tz))
+                parts.append((raw_name, headers, rows, Path(path).name))
+        for raw_name, headers, rows, source, combined in _combine_copies(parts):
+            info = _load_table(conn, raw_name, headers, rows, source, taken, tz)
+            info.combined = combined
+            catalog.tables.append(info)
         conn.execute("CREATE TABLE _gra_catalog (json TEXT)")
         conn.execute("INSERT INTO _gra_catalog VALUES (?)", (catalog.to_json(),))
         conn.commit()
     finally:
         conn.close()
     return catalog
+
+
+# A second copy of the same export: "cases 2", "cases (2)", "cases-2", "cases_2", "cases copy".
+_COPY_SUFFIX = re.compile(r"([ _-]*(\(\d{1,2}\)|copy( \d{1,2})?)|[ _-]+\d{1,2})$", re.IGNORECASE)
+
+
+def _copy_base(name: str) -> str:
+    return snake(_COPY_SUFFIX.sub("", str(name).strip()) or name)
+
+
+def _combine_copies(parts):
+    """Join files that are copies of one export (same name apart from a copy number, same columns).
+
+    Exports are often split by period, so the same table arrives as several files: each becomes part
+    of one table. When a record key repeats across the files, the copy from the file added later is
+    kept, since it holds the newer state of that record. Yields (name, headers, rows, source, note)."""
+    groups: dict[tuple, list[int]] = {}
+    for i, (raw_name, headers, _rows, _src) in enumerate(parts):
+        cols = [snake(h) for h in headers]
+        if len(set(cols)) != len(cols) or not cols:
+            groups[("__single__", i)] = [i]
+            continue
+        groups.setdefault((_copy_base(raw_name), frozenset(cols)), []).append(i)
+    for idx in groups.values():
+        if len(idx) == 1:
+            raw_name, headers, rows, src = parts[idx[0]]
+            yield raw_name, headers, rows, src, ""
+            continue
+        raw_name, headers = parts[idx[0]][0], parts[idx[0]][1]
+        order = [snake(h) for h in headers]
+        pieces = []
+        for i in idx:
+            hs = [snake(h) for h in parts[i][1]]
+            pos = [hs.index(c) for c in order]
+            pieces.append([[r[p] if p < len(r) else None for p in pos] for r in parts[i][2]])
+        key = _record_key(order, pieces)
+        merged: dict = {}
+        replaced = 0
+        for piece in pieces:
+            for n, r in enumerate(piece):
+                k = _key_value(r[key]) if key is not None else tuple(_key_value(v) for v in r)
+                if key is None and k in merged:
+                    replaced += 1  # the same row again in a later file
+                    continue
+                if key is not None and k in merged:
+                    replaced += 1
+                    del merged[k]  # the later file's copy takes this record's place at the end
+                merged[k] = r
+        sources = [parts[i][3] for i in idx]
+        total = sum(len(p) for p in pieces)
+        if key is not None:
+            note = (f"combined from {len(idx)} files ({', '.join(sources)}): {total:,} rows, {replaced:,} records "
+                    f"appeared in more than one file by {order[key]} and the copy from the later file was kept")
+        else:
+            note = (f"combined from {len(idx)} files ({', '.join(sources)}): {total:,} rows, "
+                    f"{replaced:,} rows repeated exactly in a later file were kept once")
+        yield raw_name, headers, list(merged.values()), " + ".join(sources), note
+
+
+def _key_value(v):
+    return "" if v is None else str(v).strip()
+
+
+def _record_key(cols: list[str], pieces) -> int | None:
+    """The column that names each record: an ID-like column, filled and unique within every file."""
+    for j, c in enumerate(cols):
+        if not _ID_NAME.search(c):
+            continue
+        ok = True
+        for piece in pieces:
+            vals = [_key_value(r[j]) for r in piece]
+            if any(v == "" for v in vals) or len(set(vals)) != len(vals):
+                ok = False
+                break
+        if ok:
+            return j
+    return None
 
 
 def _load_table(conn, raw_name, headers, rows, source_file, taken, tz=None) -> TableInfo:
